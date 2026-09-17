@@ -38,6 +38,11 @@ for u in mu300-vendor.service:sysinit.target mu300-lan.service:multi-user.target
   ln -sfn $src $R/etc/systemd/system/$tgt.wants/$svc
 done
 ln -sfn /opt/mu300/bin/mu300-toolkit $R/usr/local/bin/mu300-toolkit
+# fstrim on the loop-mounted root wiped the whole eMMC region on the 5.4 vendor kernel (see docs/FINDINGS.md):
+# never let anything discard through the loop device
+ln -sfn /dev/null $R/etc/systemd/system/fstrim.timer
+ln -sfn /dev/null $R/etc/systemd/system/fstrim.service
+ln -sfn /dev/null $R/etc/systemd/system/e2scrub_all.timer
 # no graphical/serial login noise on a headless dongle; keep ttyS1 console for debugging
 ln -sfn /dev/null $R/etc/systemd/system/getty@tty1.service
 cd $R && tar --numeric-owner -czf /w/mu300-ubuntu-24.04-rootfs.tar.gz .

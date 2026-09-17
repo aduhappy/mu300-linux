@@ -139,6 +139,15 @@ The root filesystem moved from Ubuntu 26.04 to 24.04 LTS: 26.04's userland start
   directory (systemd then disappears). Always ship files under `usr/lib/...`.
 * `docker export` leaves `/etc/hostname` empty.
 
+### 13a. Never discard through the root loop device
+Ubuntu enables `fstrim.timer` (weekly, `Persistent=true`, up to 100 min random delay), so it fires about an hour
+after the first boot of a fresh install. The root filesystem is an ext4 on a loop device mapped onto a raw offset of
+`/dev/mmcblk0`; the discard requests that `fstrim` issues erased the **entire 32 GiB region**, not only its free
+blocks — filesystem, both systems and all data, while the system was running (it then rebooted into Android).
+Reproduced once on 2026-09-17: installation at 20:26, region all zeros at ~21:27, superblock included, `boot_b`
+untouched. The images now mask `fstrim.timer`, `fstrim.service` and `e2scrub_all.timer`; do not re-enable them and
+do not run `fstrim`, `blkdiscard` or `mount -o discard` on this device.
+
 ## Wi-Fi (SC2355 / Marlin3)
 
 ### 14. Bring-up

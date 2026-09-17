@@ -1,228 +1,198 @@
-# Linux on the ZTE F50 / MU300 (Unisoc T760)
+# Linux on the ZTE F50 / MU300
 
-Ubuntu 24.04 LTS with systemd, SSH, telnet, a USB serial console, a working modem/PM co-processor and
-Wi-Fi on the ZTE F50 5G mobile hotspot (hardware MU300, Unisoc T760 / UMS9620). It runs a custom
-5.4.254 kernel built from ZTE's GPL source and boots next to Android without changing the partition table.
+The ZTE F50 is a pocket 5G router. This project turns it into a small Linux computer: **Ubuntu 24.04 LTS** or
+**OpenWrt**, with SSH, Wi-Fi, Bluetooth and its 5G modem working. Android stays on the device, and you can go back
+to it at any time.
 
-> **Türkçe özet:** ZTE F50 / MU300 (Unisoc T760) üzerinde, Android'e ve bölüm tablosuna dokunmadan,
-> ZTE'nin GPL kaynağından derlenmiş 5.4.254 kernel ile Ubuntu 24.04 LTS (systemd, SSH, telnet, USB seri
-> konsol, modem ve Wi-Fi) çalıştırmak için gereken her şey. Ayrıntılar İngilizce; teknik bulguların tamamı
-> [`docs/FINDINGS.md`](docs/FINDINGS.md) içinde.
+Think of it as a Raspberry Pi that already has a 5G modem, a Wi-Fi access point and 32 GB of storage inside.
 
-> **Warning.** This writes to `boot_b` and to the `misc` partition, and creates a filesystem in unused eMMC space.
-> It requires an unlocked/verification-bypassed device with root on Android and a working SPD download-mode
-> recovery path. You can brick your device. Nothing here is endorsed by ZTE or Unisoc.
+> **Türkçe:** ZTE F50 / MU300'ü küçük bir Linux bilgisayarına çevirir: Ubuntu 24.04 veya OpenWrt; SSH, Wi-Fi,
+> Bluetooth ve 5G modem çalışır. Android cihazda kalır, istediğiniz an geri dönersiniz. Kurulum: önce
+> `./install.sh --check` ile cihazınıza bakın, sonra `./install.sh` ile kurun; `./uninstall.sh` ile kaldırın.
 
-## Status
+---
 
-| Feature | State |
+## What you get
+
+* **A real Linux system**, not an app or a container: Ubuntu 24.04 LTS with systemd and `apt`, or OpenWrt with its
+  LuCI web interface.
+* **Internet over 5G/LTE**, shared with everything connected to the device.
+* **A Wi-Fi hotspot** (5 GHz or 2.4 GHz) and **USB networking**: plug it into a computer and it shows up as a network adapter.
+* **SSH access** at `192.168.77.1`, plus a USB serial console.
+* **Bluetooth** and the **Mali GPU** (OpenCL; no screen output).
+* **`mu300-toolkit`**, a menu like `raspi-config`: temperatures, CPU and RAM use, network speeds, performance
+  profiles, stress tests, VPN and services.
+* **Android stays installed.** One command switches back.
+
+## What it costs you
+
+* **Android and Linux share the device.** Only one runs at a time; a reboot switches between them.
+* **No screen output.** HDMI over USB-C does not work (the power-delivery chip never answers), so this is a headless
+  machine you use over SSH or the web interface.
+* **No sound.** The speaker and microphone path does not work yet.
+* **1.4 GB of RAM.** The modem firmware permanently reserves the rest.
+
+## Before you start
+
+Your device must already be **rooted and unlocked** (it must already boot a modified Android boot image), and you
+need `adb` on your computer. Getting to that point is not part of this project.
+
+> **Warning.** Installing writes to the `boot_b` and `misc` partitions. If something goes badly wrong you may need a
+> recovery tool (SPD/BROM) to revive the device. Android, its data and the partition table are never modified, but
+> there is always some risk. Nothing here is endorsed by ZTE or Unisoc.
+
+**What protects you:**
+* Linux is installed into empty, unused space on the internal storage; Android's partitions are not touched.
+* Linux starts as a "trial boot". If it fails to start, the bootloader returns to Android by itself.
+* `./uninstall.sh` puts everything back.
+
+**You need:**
+* A ZTE F50 / MU300, rooted, connected by USB, with USB debugging enabled.
+* A macOS or Linux computer with `adb`, `python3`, `lz4` and `curl`.
+* About 15 minutes.
+
+## Install
+
+**Step 1 — check your device.** This only reads; it writes nothing.
+
+```sh
+./install.sh --check
+```
+
+It reports the storage size, where Android's partitions end and how much free space follows them. On the tested
+devices that is about 32 GiB. If yours shows much less, stop and open an issue.
+
+**Step 2 — install.**
+
+```sh
+./install.sh
+```
+
+It asks a few questions (Ubuntu, OpenWrt or both; which one boots; a password), downloads the ready-made images,
+copies the Wi-Fi and modem files from your own device, shows exactly what it is about to write, and waits for you to
+type `INSTALL`. Then it reboots into Linux.
+
+**Step 3 — log in.** Wait about a minute, then on the computer it is plugged into:
+
+```sh
+ssh ubuntu@192.168.77.1        # the password you chose during the install
+```
+
+For OpenWrt use `ssh root@192.168.77.1`, or open `http://192.168.77.1` in a browser for LuCI.
+
+The Wi-Fi network the device broadcasts is its hotspot; unless you chose otherwise it uses the name and password
+copied from Android.
+
+## Everyday use
+
+`sudo mu300-toolkit` opens a menu for everything below. The direct commands:
+
+| I want to… | Command |
 |---|---|
-| Custom kernel (5.4.254, ZTE U30 Air source + fragment) | ✅ boots, 86 vendor modules rebuilt from source |
-| Boot without touching `boot_a`, GPT or `userdata` | ✅ slot b one-shot trial, init restores slot a |
-| USB Ethernet (ECM) + DHCP | ✅ `192.168.77.1`, host gets `192.168.77.2-9` |
-| USB serial console (CDC-ACM) | ✅ `serial-getty@ttyGS0` |
-| Ubuntu 24.04.4 LTS, systemd 255 | ✅ `running`, no failed units |
-| SSH and telnet | ✅ |
-| PM co-processor watchdog / no power cut after ~290 s | ✅ via Android `modem_control` in a chroot |
-| Modem firmware boot (`Modem Alive`) | ✅ |
-| Wi-Fi (SC2355 / Marlin3) | ✅ station scan and access-point mode (`hostapd` AP-ENABLED) |
-| Mobile data (5G NSA/LTE) | ✅ AT commands + `sipa_eth0`, about 75 Mbit/s down / 10 Mbit/s up measured |
-| Internet sharing to USB (NAT) | ✅ host behind `usb0` reaches the internet through the modem; a watchdog reconnects after modem resets |
-| Wi-Fi hotspot out of the box | ✅ hostapd on `wlan0` bridged with USB into one LAN (192.168.77.0/24); SSID/password imported from Android or generated; `BAND=5` (802.11ac, 80 MHz, channels 36-48/149-165) or `BAND=2.4`; one band at a time |
-| Modem NV persistence (`cp_diskserver`), `refnotify` | ✅ Android daemons in the chroot |
-| Thermal throttling, status LEDs, SIM tray, DVFS drivers | ✅ `mu300-extra-modules` (blue LED = mobile data up) |
-| Default boot to Linux with automatic fallback | ✅ `mu300-next-boot linux\|android`; a Linux boot that never completes rolls back to Android |
-| RAM | ✅ 1473 MiB usable (464 MiB is the modem firmware's, unavoidable); unused logo/sysdump reservations freed, zram swap |
-| OpenWrt 25.12 (selectable next to Ubuntu, `mu300-os`) | ✅ procd boot, modem, cellular WAN (`proto mu300cell`, APN in LuCI), firewall4 NAT, 5 GHz Wi-Fi (UCI/LuCI), USB LAN, SSH; ~140 MiB RAM used |
-| Internal audio | ✗ no speaker/mic path; the AW883xx amplifier does not answer on I2C. The AGDSP can be booted with firmware from another device (Android community modules), Linux port pending |
-| Bluetooth (SC2355) | ✅ BlueZ `hci0` powered, scanning works: `sprdbt_tty` (PCIe H4) + `mu300-bt-init` vendor PSKey/RF upload + link-policy kernel patch |
-| GPU (Mali-G57) | ✅ OpenCL 3.0 (headless): `mali_kbase` r40p0 built from source + Android's Mali userspace in the vendor chroot (`android-gpu-run`) |
+| Watch temperatures, CPU, RAM, network speed | `mu300-toolkit top` |
+| Make it faster, or cooler and quieter | `sudo mu300-toolkit profile performance` (also `eco`, `balanced`) |
+| Test stability under load | `sudo mu300-toolkit stress all 10` |
+| Check the mobile connection | `sudo mobile-data status` |
+| Change the Wi-Fi name or password | edit `/etc/mu300/hotspot.conf`, then `sudo systemctl restart mu300-hotspot` |
+| Switch between OpenWrt and Ubuntu | `sudo mu300-os openwrt` / `sudo mu300-os ubuntu` |
+| Go back to Android | `sudo mu300-next-boot android`, then `sudo reboot` |
+| Return to Linux from Android | `boot/android-boot-linux.sh boot-linux-slotb.img` |
+| Send all traffic through a VPN | see below |
 
-## How it works
+### VPN
 
-```
-LK (slot b, tries=2) ─► custom 5.4 kernel + vendor_boot DTB
-   └─► initramfs /init (boot/init)
-         ├─ load 86 modules in a fixed order (boot/module-order.txt)
-         ├─ misc: restore slot a, unless the rootfs says default-boot=linux
-         ├─ bind USB gadget: ECM (usb0 up immediately) + ACM console
-         ├─ losetup -o 27762098176 /dev/mmcblk0 → ext4 "mu300root" (free space after userdata)
-         └─ switch_root → systemd
-               ├─ mu300-vendor   : Android modem_control in a chroot (disarms PM watchdog, boots modem)
-               ├─ mu300-lan      : br-lan (usb0 + wlan0) 192.168.77.1 + dnsmasq DHCP/DNS
-               ├─ mu300-wifi     : pcie-sprd, wcn_bsp, sprd_wlan_combo
-               ├─ mu300-mobile-data : AT on /dev/stty_nr1, sipa_eth0, nftables NAT
-               ├─ mu300-bluetooth : sprdbt_tty, mu300-bt-init (PSKey/RF), btattach → bluetoothd
-               └─ ssh.socket, telnetd, serial-getty@ttyGS0
+The device can send its own traffic **and** everything from connected clients through a VLESS server (sing-box),
+with a kill switch so nothing leaks over mobile data if the tunnel drops.
+
+```sh
+sudo cp /etc/mu300/vpn.conf.example /etc/mu300/vpn.conf
+sudo nano /etc/mu300/vpn.conf         # paste your vless:// link into VLESS_URI, set ENABLE=1
+sudo systemctl enable --now mu300-vpn
+mu300-vpn status
 ```
 
-Read [`docs/FINDINGS.md`](docs/FINDINGS.md) for the reasoning behind each step (LK slot rules, LZ4 ramdisk,
-USB dependency chain, the PM watchdog, the `modem_control` process-name check, macOS ECM link state, …).
+## Uninstall
 
-## Repository layout
+With the device back in Android:
+
+```sh
+./uninstall.sh
+```
+
+It makes Android the boot system again, restores the second boot partition and erases the Linux filesystem. Your
+Android data is left alone.
+
+## What works and what does not
+
+| | |
+|---|---|
+| Ubuntu 24.04 LTS / OpenWrt 25.12 | ✅ boots, no failed services |
+| Mobile data (5G NSA / LTE) | ✅ shared with Wi-Fi and USB clients; reconnects by itself after modem resets |
+| Wi-Fi access point | ✅ 5 GHz (802.11ac) or 2.4 GHz, one at a time |
+| USB network + serial console | ✅ `192.168.77.1`, `screen /dev/cu.usbmodem* 115200` |
+| SSH, telnet | ✅ |
+| Bluetooth | ✅ BlueZ, scanning works |
+| GPU (Mali-G57) | ✅ OpenCL 3.0, headless |
+| Storage | ✅ about 32 GB in the unused area of the internal eMMC |
+| RAM | ✅ 1.4 GB usable (the modem firmware keeps the rest) |
+| Temperature control, status LEDs, SIM tray | ✅ |
+| Back to Android, automatic rollback | ✅ |
+| Screen output (HDMI over USB-C) | ✗ the USB-C power chip never answers, so no display |
+| Sound | ✗ the amplifier does not respond |
+| Mainline kernel (6.18) | 🚧 experimental, see [`upstream/`](upstream/) |
+
+## How it works, in short
+
+The device has two Android boot slots, A and B. Android lives on slot A and is left alone. The installer puts a
+custom Linux kernel into slot B and marks it as a one-time trial. At boot, a small startup program loads the
+device's drivers, finds the Linux filesystem in the unused part of the internal storage and starts Ubuntu or OpenWrt
+from it. If Linux ever fails to start, the bootloader falls back to Android by itself. Three small Android programs
+keep running inside Linux in a sandbox, because the modem needs them.
+
+The kernel is built from ZTE's published (GPL) source. The reasoning behind each step is in
+[`docs/FINDINGS.md`](docs/FINDINGS.md), and the full build is in [`docs/BUILD.md`](docs/BUILD.md).
+
+## Common problems
+
+**The device does not come back after installing.** Wait two minutes. If there is still nothing, unplug and replug
+it: the bootloader will have returned to Android on its own. Collect logs with `tools/collect-logs.sh`.
+
+**No internet.** Check that the SIM has a data plan, then run `sudo mobile-data status`. A missing plan looks like a
+connection that keeps dropping.
+
+**Websites think you are in another country.** The device has no GPS, so sites guess from the IP address; mobile
+operators and VPN servers often look like a different city.
+
+**I forgot the password.** Boot Android and run `./install.sh` again; it reinstalls and asks for a new one.
+
+**Never use OpenWrt's `sysupgrade` or flash OpenWrt firmware images here.** They are written for ordinary computers
+and would overwrite the device's storage. A normal `apk upgrade` is fine, except `kernel` and `kmod-*` packages.
+
+## For developers
+
+* [`docs/BUILD.md`](docs/BUILD.md) — build the kernel and images yourself (`kernel/build-all.sh` does it in one step).
+* [`docs/FINDINGS.md`](docs/FINDINGS.md) — everything learned about this hardware and why each workaround exists.
+* [`upstream/`](upstream/) — the mainline 6.18 kernel port.
+* [Releases](https://github.com/dikeckaan/mu300-linux/releases) — prebuilt images. They contain **no proprietary
+  files**; the installer takes those from your own device.
 
 | Path | Contents |
 |---|---|
-| `kernel/` | Docker build env, stock F50 config, `mu300-linux.fragment`, build scripts, Wi-Fi driver patch |
-| `boot/` | `init`, `module-order.txt`, `build-boot-image.py`, `flash-trial.sh` |
-| `rootfs/` | Ubuntu 24.04 `Dockerfile`, `assemble.sh`, systemd units and helper scripts (`overlay/`) |
-| `android-vendor/` | Scripts to extract the Android runtime subset from *your* device, permission generator |
-| `tools/` | `logdw` (liblog sink), SSH/SCP/telnet/serial helpers, log collector, Android-side mount helper |
-| `docs/` | Findings and notes |
+| `install.sh`, `uninstall.sh` | installer and remover (run on your computer) |
+| `kernel/` | kernel build environment, config, patches |
+| `boot/` | initramfs `init`, boot image builder, slot handling |
+| `rootfs/` | Ubuntu image: `Dockerfile`, `assemble.sh`, services and scripts in `overlay/` |
+| `openwrt/` | OpenWrt image build |
+| `android-vendor/` | scripts that copy the needed Android files from *your* device |
+| `tools/` | helper programs, release tooling, SSH/serial/log helpers |
 
-Related: the kernel source used here is mirrored at
-[`dikeckaan/zte-ums9620-kernel-5.4.254`](https://github.com/dikeckaan/zte-ums9620-kernel-5.4.254)
-(ZTE U30 Air GPL release, 5.4.254).
-
-**Not included** (proprietary or device-specific): stock partition images, Android vendor binaries and libraries,
-`/dev/__properties__`, Wi-Fi/modem firmware, device dumps and identifiers. The scripts extract these from your own device.
-
-## Requirements
-
-* A rooted MU300/F50 with the boot verification bypass (Android must already boot a modified `boot` image),
-  `adb` access, and a tested SPD/BROM recovery path.
-* macOS or Linux host with `adb`, Python 3, `lz4` and `curl`; building locally (`--build`, `kernel/build-all.sh`) also
-  needs Docker (arm64 native or emulation).
-* The installer dumps `boot_a` and the first 4 KiB of `misc` from your device itself (they stay in `work/`).
-
-## Quick install
-
-With the device in rooted Android (see Requirements) and connected over adb:
-
-```sh
-./install.sh --check   # does this device have the free eMMC region, and is it empty? writes nothing
-./install.sh           # install from the prebuilt release images (needs adb, python3, lz4, curl)
-./install.sh --build   # or build everything locally first (needs Docker, see "Build and run")
-./uninstall.sh         # back to stock Android (boot slot a, boot_b = boot_a, erase the Linux filesystem)
-```
-
-`--check` reads the GPT from the device and reports the eMMC size, where the partitions end and how much unpartitioned
-space follows them (about 32 GiB on the tested 64 GB F50), samples that region for existing data and tells whether an
-MU300 Linux installation is already there. The installer runs the same check first and stops on devices with a
-different layout; a region that is not empty has to be confirmed explicitly.
-
-The installer
-* asks which systems to install (Ubuntu, OpenWrt or both), which one boots, whether Linux is the default boot, whether to
-  copy Android's hotspot name/password and whether to include the GPU userspace, and asks for a password
-  (`ubuntu` user on Ubuntu, `root` on OpenWrt),
-* pulls the vendor files it needs from the device into `work/` (never into the repository),
-* prebuilt: downloads the images of the pinned release (`MU300_RELEASE`) from GitHub and verifies their SHA-256; the
-  published images contain no proprietary files, so the Wi-Fi/Bluetooth firmware and the Android modem/GPU userspace
-  from *your* device are added as an overlay during installation (`tools/vendor-overlay.py`),
-* `--build`: builds both root filesystems with Docker from the kernel outputs in `out/` (`kernel/build-all.sh`),
-* builds the boot image from your own `boot_a`, shows a summary that must be confirmed with `INSTALL`,
-* unpacks the systems to `/ubuntu` and `/openwrt` on the Linux filesystem, writes `boot_b` and arms slot b, and reboots.
-
-Only the Linux region, `boot_b` and 32 bytes of `misc` are written; `boot_a`, the GPT and `userdata` stay untouched. After
-installation: `mu300-os ubuntu|openwrt` switches systems, `mu300-next-boot android` returns to Android. Hotspot, cellular
-data and USB sharing are configured on first boot and stay editable (`/etc/mu300/hotspot.conf` on Ubuntu, UCI/LuCI on
-OpenWrt). `MU300_REUSE_BUILD=1` reuses the root filesystems built by a previous run.
-
-**Never flash OpenWrt firmware images or use sysupgrade on this device** (they target generic arm64 disks and would
-overwrite the eMMC); the installed OpenWrt blocks it. Updating packages with `apk upgrade` is fine, except `kernel`/`kmod-*`
-(this device runs its own 5.4 kernel).
-
-## Build and run
-
-### 1. Kernel
-One step, from the pinned public sources (kernel tree, realme Wi-Fi/Bluetooth/Mali modules) with all patches applied:
-```sh
-kernel/build-all.sh    # -> out/Image, out/modules/*.ko, out/modules.builtin*  (about 10 minutes on Apple silicon)
-```
-Maintainers publish the prebuilt images with `tools/make-release.sh TAG --publish` (it refuses to publish if an image
-contains firmware, Android files, host keys or local settings). The manual steps behind `build-all.sh`:
-```sh
-git clone https://github.com/dikeckaan/zte-ums9620-kernel-5.4.254   # or the Enceka U30 Air repo
-docker build -t mu300-kbuild kernel/
-docker volume create mu300-kernel
-docker run --rm -v mu300-kernel:/src -v "$PWD/../zte-ums9620-kernel-5.4.254":/tree mu300-kbuild cp -a /tree /src/zte-u30air
-cp kernel/f50-stock-B09.config kernel/device.config
-docker run --rm -v mu300-kernel:/src -v "$PWD/kernel":/work mu300-kbuild bash /work/build-linux.sh
-```
-`build-linux.sh` merges `mu300-linux.fragment` into the stock config, switches to ThinLTO and builds `Image` + modules
-into `/src/out-linux`. Copy `Image`, `modules.builtin*` and all `*.ko` (flattened, `llvm-strip --strip-debug`) to `out/`.
-
-Wi-Fi driver: extract `kernel_modules/kernel5.4/wcn/wlan/wlan_combo` from the realme C51/C53 AndroidT kernel source into
-the volume as `/src/ext-wlan_combo`, then run `kernel/build-wlan.sh` (applies the `patches/wlan_combo-*.patch` files).
-
-Kernel patches: apply `kernel/patches/bluetooth-marlin3-link-policy.patch`, `of-reserved-mem-skip.patch` and `regdb-wens-certificate.patch` to the kernel tree
-before building, and `echo -gb50db5b6224c > .scmversion` so the release string does not get a `-dirty` suffix.
-
-GPU: copy `kernel_modules/kernel5.4/gpu/natt/mali` from the realme tree (master branch) to `/src/ext-mali` and run
-`kernel/build-mali.sh`; pull the userspace with `android-vendor/extract-gpu-subset.sh` and build `tools/gpu/cltest` with
-`tools/gpu/build.sh <dir with libc.so libdl.so libOpenCL.so>`.
-
-Bluetooth: build `sprdbt_tty.ko` from the same realme tree (`wcn/bluetooth/driver/tty-pcie`, `BSP_BOARD_UNISOC_WCN_SOCKET=pcie`)
-and the vendor-init tool: `docker run --rm -v "$PWD/tools/bt-init":/w mu300-kbuild gcc -O2 -static -o /w/mu300-bt-init /w/mu300-bt-init.c`.
-
-### 2. Android vendor subset (from your device)
-```sh
-android-vendor/extract-subset.sh android-subset
-python3 android-vendor/gen-ueventd-perms.py android-subset/vendor/etc/ueventd.rc <vendor init *.rc> > android-vendor/ueventd-perms.sh
-```
-
-### 3. Boot image
-```sh
-docker build -t mu300-ubuntu:24.04 rootfs/
-docker run --rm mu300-ubuntu:24.04 cat /bin/busybox > busybox && chmod +x busybox   # static, has mdev/losetup/switch_root/telnetd
-docker run --rm -v "$PWD/tools/logdw":/w mu300-kbuild gcc -O2 -static -o /w/logdw /w/logdw.c
-python3 boot/build-boot-image.py --stock-boot dumps/boot_a.img --misc-head dumps/misc-head.bin \
-  --kernel out/Image --modules out/modules --busybox busybox --logdw tools/logdw/logdw \
-  --ueventd-perms android-vendor/ueventd-perms.sh --android-subset android-subset --out boot-linux-slotb.img
-```
-
-### 4. Root filesystem on the free eMMC region
-1. Check on *your* device that the space after `userdata` is really unallocated (compare the last partition end with
-   the GPT's last usable LBA) and adjust `ROOT_OFFSET` in `boot/init` and `tools/android-mount-mu300root.sh`.
-2. On Android (root), create the filesystem through a bounded loop device and verify offset/size first.
-3. Assemble and deploy:
-```sh
-cid=$(docker create mu300-ubuntu:24.04); docker export $cid > rootfs/base.tar; docker rm $cid
-tools/fetch-sing-box.sh   # optional: VLESS client for mu300-vpn (pinned release, sha256-checked)
-docker run --rm -v "$PWD/rootfs":/w -v "$PWD/out/modules":/kmods:ro -v "$PWD/out":/kout:ro \
-  -v "$PWD/firmware":/firmware:ro -v "$PWD/android-subset":/android-subset:ro -v "$PWD/tools/logdw/logdw":/logdw:ro \
-  -v "$PWD/tools/bt-init/mu300-bt-init":/bt-init:ro -v "$PWD/sing-box":/sing-box:ro mu300-ubuntu:24.04 bash /w/assemble.sh
-```
-Push `mu300-ubuntu-24.04-rootfs.tar.gz` to the device and extract it with `tools/android-mount-mu300root.sh`.
-`firmware/` holds `wcnmodem.bin`, `gnssmodem.bin` and `wifi_board_config*.ini` from the device's `/odm/firmware`, plus
-`bt_configure_pskey.ini` and `bt_configure_rf.ini` from `/vendor/etc`.
-
-### 5. Boot Linux
-```sh
-boot/flash-trial.sh boot-linux-slotb.img
-```
-After about 50 s: `ssh ubuntu@192.168.77.1` (password `ubuntu`, **change it**), `telnet 192.168.77.1`, or
-`screen /dev/cu.usbmodem* 115200`. `sudo /opt/mu300/bin/mobile-data status|up [APN]|down|sim-reset` controls the modem (`mu300-mobile-data-watch` reconnects automatically unless you ran `down`). `sudo reboot` returns to Android. If a trial fails, collect logs from Android with
-`tools/collect-logs.sh`.
-
-Make Linux the default (inside Linux):
-```sh
-sudo mu300-next-boot linux     # every successful boot re-arms slot b (mu300-boot-ok.service)
-sudo mu300-next-boot android   # next reboot goes to Android and stays there
-sudo mu300-next-boot status
-```
-Hotspot settings live in `/etc/mu300/hotspot.conf` (`SSID=`, `PSK=`, `BAND=5|2.4`, `CHANNEL=auto|n`, `COUNTRY=`); `tools/android-import-hotspot.sh`
-copies the current Android hotspot into it before the first boot, otherwise a random password is generated and shown at login.
-
-From Android, `boot/android-boot-linux.sh boot-linux-slotb.img` boots the image already on `boot_b` again without reflashing.
-If Linux ever fails before `mu300-boot-ok` runs, LK sees `tries_remaining=1` on the next boot and falls back to Android.
-
-### Toolkit
-`sudo mu300-toolkit` (Ubuntu and OpenWrt) is a raspi-config style menu: live monitor (per-core load and frequency, RAM,
-temperatures, throttling, per-interface down/up rates, eMMC I/O, busiest processes), CPU/GPU performance profiles,
-mobile data, Wi-Fi hotspot, VPN, service status and system settings. Without the menu:
-```sh
-mu300-toolkit top                       # task manager, q quits
-mu300-toolkit info
-sudo mu300-toolkit profile performance  # eco | balanced | performance, saved and re-applied at boot
-```
-Profiles only move within the SoC's frequency table (`performance` pins every core at its hardware maximum);
-overclocking beyond it is not possible because the voltage steps are fixed by the firmware, and the kernel thermal
-trips (85 °C) keep throttling in every profile.
+The kernel source used here is mirrored at
+[`dikeckaan/zte-ums9620-kernel-5.4.254`](https://github.com/dikeckaan/zte-ums9620-kernel-5.4.254).
 
 ## Credits and licenses
 
-* Kernel source: ZTE GPL release for the U30 Air (mirrored by Enceka), Unisoc drivers therein — GPL-2.0.
-* Wi-Fi driver source: realme C51/C53 AndroidT kernel release (`wlan_combo`) — GPL-2.0; the patch in `kernel/patches` is GPL-2.0.
+* Kernel source: ZTE's GPL release for the U30 Air (mirrored by Enceka) and the Unisoc drivers in it — GPL-2.0.
+* Wi-Fi, Bluetooth and GPU drivers: realme C51/C53 AndroidT kernel release — GPL-2.0; the patches in
+  `kernel/patches` are GPL-2.0.
 * Scripts, tools and documentation in this repository: MIT (see `LICENSE`).
 * Stock firmware, Android vendor components and bootloaders belong to their owners and are not distributed here.
