@@ -53,6 +53,7 @@ case "$model" in *MU300*|*F50*|*mu300*) ;; *) ask go "This does not look like a 
 # ---------------------------------------------------------------- free eMMC region
 say "Locating free eMMC space after the last partition"
 set -- $(su_do 'e=0; for p in /sys/block/mmcblk0/mmcblk0p*; do x=$(( $(cat $p/start) + $(cat $p/size) )); [ $x -gt $e ] && e=$x; done; echo $e $(cat /sys/block/mmcblk0/size)')
+[ $# -eq 2 ] || die "could not read the partition table from the device (is su granted? try again)"
 last_end=$1; disk=$2
 start=$(( (last_end / 4096 + 1) * 4096 ))
 end=$(( ((disk - 34) / 4096 - 1) * 4096 ))
