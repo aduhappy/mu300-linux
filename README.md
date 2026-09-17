@@ -55,6 +55,17 @@ need `adb` on your computer. Getting to that point is not part of this project.
 
 ## Install
 
+**Step 0 — back up what cannot be replaced (recommended).**
+
+```sh
+tools/backup-device.sh          # macOS / Linux, device in rooted Android
+```
+
+This copies your unit's own data — `prodnv`, the modem calibration and IMEI partitions, the bootloader chain — to
+your computer and verifies every dump against the device. Installing never touches these, but if they are ever lost
+no firmware download can bring them back, and the modem stays broken. Keep the folder somewhere safe and out of any
+repository: it contains your IMEI.
+
 **Step 1 — check your device.** This only reads; it writes nothing.
 
 ```sh
@@ -207,7 +218,7 @@ and would overwrite the device's storage. A normal `apk upgrade` is fine, except
 | `rootfs/` | Ubuntu image: `Dockerfile`, `assemble.sh`, services and scripts in `overlay/` |
 | `openwrt/` | OpenWrt image build |
 | `android-vendor/` | scripts that copy the needed Android files from *your* device |
-| `tools/` | helper programs, release tooling, SSH/serial/log helpers |
+| `tools/` | helper programs, release tooling, backup, SSH/serial/log helpers |
 
 The kernel source used here is mirrored at
 [`dikeckaan/zte-ums9620-kernel-5.4.254`](https://github.com/dikeckaan/zte-ums9620-kernel-5.4.254).
