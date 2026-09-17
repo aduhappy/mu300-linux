@@ -21,7 +21,7 @@ Wi-Fi on the ZTE F50 5G mobile hotspot (hardware MU300, Unisoc T760 / UMS9620). 
 | Boot without touching `boot_a`, GPT or `userdata` | ✅ slot b one-shot trial, init restores slot a |
 | USB Ethernet (ECM) + DHCP | ✅ `192.168.77.1`, host gets `192.168.77.2-9` |
 | USB serial console (CDC-ACM) | ✅ `serial-getty@ttyGS0` |
-| Ubuntu 26.04.1 LTS, systemd 259 | ✅ `running` (kernel 5.4 = systemd minimum baseline) |
+| Ubuntu 24.04.4 LTS, systemd 255 | ✅ `running`, no failed units |
 | SSH and telnet | ✅ |
 | PM co-processor watchdog / no power cut after ~290 s | ✅ via Android `modem_control` in a chroot |
 | Modem firmware boot (`Modem Alive`) | ✅ |
@@ -93,6 +93,7 @@ With the device in rooted Android (see Requirements) and connected over adb:
 ./install.sh --check   # does this device have the free eMMC region, and is it empty? writes nothing
 ./install.sh           # install from the prebuilt release images (needs adb, python3, lz4, curl)
 ./install.sh --build   # or build everything locally first (needs Docker, see "Build and run")
+./uninstall.sh         # back to stock Android (boot slot a, boot_b = boot_a, erase the Linux filesystem)
 ```
 
 `--check` reads the GPT from the device and reports the eMMC size, where the partitions end and how much unpartitioned

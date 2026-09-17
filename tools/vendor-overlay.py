@@ -51,10 +51,11 @@ def main():
     a = ap.parse_args()
 
     def android(rel):
-        if rel == 'dev':
+        # the property area snapshot moves out of dev/ (a devtmpfs is mounted there on the device)
+        if rel == 'dev/__properties__' or rel.startswith('dev/__properties__/'):
+            return 'dev-properties' + rel[len('dev/__properties__'):]
+        if rel == 'dev' or rel.startswith('dev/'):
             return None
-        if rel == 'dev/__properties__':
-            return 'dev-properties'
         return rel
 
     def gpu(rel):
