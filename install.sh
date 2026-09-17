@@ -1,17 +1,32 @@
 #!/bin/sh
 # MU300 / ZTE F50 Linux installer. Run on a macOS/Linux host with the device booted in rooted Android (adb + su).
 #
-#   ./install.sh                 interactive install of Ubuntu, OpenWrt or both
+#   ./install.sh --check         only inspect the device: is the free eMMC region there and empty? (writes nothing)
+#   ./install.sh                 install Ubuntu, OpenWrt or both from the prebuilt release images
+#   ./install.sh --build         build kernel outputs/root filesystems locally instead (see README "Build and run")
 #
-# Needs: adb, docker, python3, lz4, and the kernel build outputs in $MU300_KERNEL_OUT (default: out/):
-#   Image, modules/*.ko, modules.builtin, modules.builtin.modinfo   (see README "Build and run")
-# Proprietary vendor files are pulled from *your* device into $MU300_WORK (default: work/) and never leave the host.
+# Prebuilt: needs adb, python3, lz4, curl. Downloads the images of release $MU300_RELEASE and checks their sha256.
+# Build:    needs adb, docker, python3, lz4 and the kernel outputs in $MU300_KERNEL_OUT (default: out/, kernel/build-all.sh).
+# The published images contain no proprietary files: Wi-Fi/Bluetooth firmware and the Android modem/GPU userspace are
+# pulled from *your* device into $MU300_WORK (default: work/), never leave the host except to your device.
 set -eu
 TOP=$(cd "$(dirname "$0")" && pwd)
 KOUT=${MU300_KERNEL_OUT:-$TOP/out}
 WORK=${MU300_WORK:-$TOP/work}
 OWRT_VER=25.12.5
+RELEASE=${MU300_RELEASE:-v2026.09.17}
+REPO=${MU300_REPO:-dikeckaan/mu300-linux}
 T=/data/local/tmp
+MODE=prebuilt; CHECK_ONLY=0
+for a in "$@"; do
+    case $a in
+        --check) CHECK_ONLY=1 ;;
+        --build) MODE=build ;;
+        --prebuilt) MODE=prebuilt ;;
+        -h|--help) sed -n '2,13s/^# \{0,1\}//p' "$0"; exit 0 ;;
+        *) echo "unknown option $a (see --help)" >&2; exit 2 ;;
+    esac
+done
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -22,8 +37,12 @@ su_do() { adb shell "su -c '$1'" </dev/null | tr -d '\r'; }
 
 # ---------------------------------------------------------------- preflight
 say "Checking host tools and device"
-for c in adb docker python3 lz4; do command -v $c >/dev/null || die "$c not found"; done
-[ -f "$KOUT/Image" ] && ls "$KOUT"/modules/*.ko >/dev/null 2>&1 || die "kernel outputs missing in $KOUT (build the kernel first)"
+need="adb"
+[ $CHECK_ONLY = 1 ] || { [ $MODE = build ] && need="adb docker python3 lz4" || need="adb python3 lz4 curl"; }
+for c in $need; do command -v $c >/dev/null || die "$c not found"; done
+if [ $CHECK_ONLY = 0 ] && [ $MODE = build ]; then
+    [ -f "$KOUT/Image" ] && ls "$KOUT"/modules/*.ko >/dev/null 2>&1 || die "kernel outputs missing in $KOUT (run kernel/build-all.sh)"
+fi
 adb get-state </dev/null >/dev/null 2>&1 || die "no adb device (boot Android, enable USB debugging)"
 [ "$(su_do 'id -u')" = 0 ] || die "su does not work on the device"
 model="$(su_do 'getprop ro.product.model') / $(su_do 'getprop ro.product.device')"
@@ -38,7 +57,9 @@ last_end=$1; disk=$2
 start=$(( (last_end / 4096 + 1) * 4096 ))
 end=$(( ((disk - 34) / 4096 - 1) * 4096 ))
 OFF=$((start * 512)); SIZE=$(( (end - start) * 512 ))
-[ $SIZE -gt $((4 * 1024 * 1024 * 1024)) ] || die "less than 4 GiB of unpartitioned space ($((SIZE / 1048576)) MiB); nothing is changed"
+gib() { awk -v b="$1" 'BEGIN { printf "%.1f GiB", b / 1073741824 }'; }
+echo "eMMC: $(gib $((disk * 512))), partitions end at $(gib $((last_end * 512))), unpartitioned after them: $(gib $SIZE)"
+[ $SIZE -gt $((4 * 1024 * 1024 * 1024)) ] || die "less than 4 GiB of unpartitioned space ($((SIZE / 1048576)) MiB): this device has a different partition layout, nothing is changed"
 # an existing installation defines the region (it may have been created with a slightly different size)
 existing=no
 for cand in $OFF 27762098176; do
@@ -49,8 +70,34 @@ for cand in $OFF 27762098176; do
         OFF=$cand; SIZE=$((blocks * 4096)); existing=yes; break
     fi
 done
-echo "last partition ends at sector $last_end, disk has $disk sectors"
-echo "Linux region: offset $OFF, $((SIZE / 1048576)) MiB, existing mu300root filesystem: $existing"
+echo "Linux region: offset $OFF, $(gib $SIZE), existing mu300root filesystem: $existing"
+# unpartitioned space should be unused: sample 16 x 1 MiB across the region and count non-zero bytes
+DIRTY=0
+if [ $existing = no ]; then
+    step=$(( SIZE / 1048576 / 16 ))
+    probe=""; i=0
+    while [ $i -lt 16 ]; do probe="$probe $(( OFF / 1048576 + i * step ))"; i=$((i + 1)); done
+    DIRTY=$(su_do "n=0; for s in $probe; do c=\$(dd if=/dev/block/mmcblk0 bs=1048576 skip=\$s count=1 2>/dev/null | tr -d \"\\000\" | wc -c); [ \$c -gt 0 ] && n=\$((n + 1)); done; echo \$n")
+    echo "data check: $DIRTY of 16 samples contain non-zero data"
+fi
+if [ $existing = yes ]; then
+    verdict="OK: a MU300 Linux installation is already present (it can be kept or replaced)"
+elif [ "$DIRTY" -gt 0 ]; then
+    verdict="WARNING: the unpartitioned space is not empty; it may be used by this firmware. Installing overwrites it"
+elif [ $SIZE -ge $((20 * 1024 * 1024 * 1024)) ]; then
+    verdict="OK: free and empty, same layout as the tested device (~32 GiB after userdata on the 64 GB eMMC)"
+else
+    verdict="OK: free and empty, but smaller than on the tested device; Ubuntu + OpenWrt need about 4 GiB"
+fi
+echo "result: $verdict"
+if [ $CHECK_ONLY = 1 ]; then
+    echo; echo "Nothing was written. Android version: $(su_do 'getprop ro.build.display.id')"
+    exit 0
+fi
+if [ "$DIRTY" -gt 0 ]; then
+    ask ow "Type overwrite to use this region anyway" no
+    [ "$ow" = overwrite ] || die "cancelled"
+fi
 
 # ---------------------------------------------------------------- choices
 say "What should be installed?"
@@ -94,6 +141,39 @@ if [ "$gpu" = yes ] && [ ! -d "$WORK/android-gpu-subset" ]; then
     sh "$TOP/android-vendor/extract-gpu-subset.sh" "$WORK/android-gpu-subset"
 fi
 
+if [ $MODE = prebuilt ]; then
+# ---------------------------------------------------------------- prebuilt images
+REL=$WORK/release/$RELEASE
+mkdir -p "$REL"
+# MU300_RELEASE_URL: another location with the same files (e.g. a local test server)
+base=${MU300_RELEASE_URL:-https://github.com/$REPO/releases/download/$RELEASE}
+say "Downloading release $RELEASE"
+curl -fsSL -o "$REL/SHA256SUMS" "$base/SHA256SUMS" || die "cannot download $base/SHA256SUMS"
+files=mu300-kernel.tar.gz
+for os in $OSES; do files="$files mu300-$os-rootfs.tar.gz"; done
+for f in $files; do
+    want=$(awk -v f="$f" '$2 == f || $2 == "*" f {print $1}' "$REL/SHA256SUMS")
+    [ -n "$want" ] || die "$f is not part of release $RELEASE"
+    have=$( (shasum -a 256 "$REL/$f" 2>/dev/null || sha256sum "$REL/$f" 2>/dev/null) | cut -d' ' -f1)
+    if [ "$have" != "$want" ]; then
+        echo "  $f"
+        curl -fL --progress-bar -o "$REL/$f.part" "$base/$f" || die "download of $f failed"
+        have=$( (shasum -a 256 "$REL/$f.part" 2>/dev/null || sha256sum "$REL/$f.part") | cut -d' ' -f1)
+        [ "$have" = "$want" ] || die "checksum mismatch for $f"
+        mv "$REL/$f.part" "$REL/$f"
+    fi
+done
+rm -rf "$REL/kernel" && mkdir -p "$REL/kernel" && tar -xzf "$REL/mu300-kernel.tar.gz" -C "$REL/kernel"
+KOUT=$REL/kernel
+BUSYBOX=$KOUT/busybox; LOGDW=$KOUT/logdw
+say "Adding the vendor files from your device to the images"
+for os in $OSES; do
+    python3 "$TOP/tools/vendor-overlay.py" --os $os --firmware "$WORK/firmware" --android-subset "$WORK/android-subset" \
+      $([ -d "$WORK/android-gpu-subset" ] && [ "$gpu" = yes ] && echo --gpu-subset "$WORK/android-gpu-subset") \
+      --out "$WORK/mu300-vendor-$os.tar.gz"
+done
+PWHASH=$(printf '%s\n' "$pw1" | python3 "$TOP/tools/sha512crypt.py")
+else
 # ---------------------------------------------------------------- build
 say "Building helper binaries"
 mkdir -p "$WORK/out" "$WORK/tools/logdw" "$WORK/tools/bt-init" "$WORK/tools/gpu"
@@ -133,17 +213,20 @@ case " $OSES " in *" openwrt "*) reuse openwrt || {
     MU300_INPUTS="$WORK" sh "$TOP/openwrt/build-rootfs.sh" mu300-openwrt-rootfs.tar.gz >/dev/null
     mv "$TOP/openwrt/mu300-openwrt-rootfs.tar.gz" "$WORK/mu300-openwrt.tar.gz"; } ;;
 esac
+BUSYBOX=$WORK/busybox; LOGDW=$WORK/tools/logdw/logdw
+PWHASH=$(printf '%s' "$pw1" | docker run --rm -i mu300-ubuntu:26.04 openssl passwd -6 -stdin)
+fi
 
 say "Building the boot image"
 sed "s/^ROOT_OFFSET=[0-9]*/ROOT_OFFSET=$OFF/" "$TOP/boot/init" > "$WORK/init"
 python3 "$TOP/boot/build-boot-image.py" --stock-boot "$WORK/dumps/boot_a.img" --misc-head "$WORK/dumps/misc-head.bin" \
-  --kernel "$KOUT/Image" --modules "$WORK/out/modules" --init "$WORK/init" --busybox "$WORK/busybox" \
-  --logdw "$WORK/tools/logdw/logdw" --ueventd-perms "$TOP/android-vendor/ueventd-perms.sh" \
+  --kernel "$KOUT/Image" --modules "$KOUT/modules" --init "$WORK/init" --busybox "$BUSYBOX" \
+  --logdw "$LOGDW" --ueventd-perms "$TOP/android-vendor/ueventd-perms.sh" \
   --android-subset "$WORK/android-subset" --out "$WORK/boot-linux-slotb.img" >/dev/null
-PWHASH=$(printf '%s' "$pw1" | docker run --rm -i mu300-ubuntu:26.04 openssl passwd -6 -stdin)
 
 # ---------------------------------------------------------------- confirm and install
 say "Ready to install"
+echo "  source:         $([ $MODE = prebuilt ] && echo "prebuilt release $RELEASE + vendor files from this device" || echo "local build")"
 echo "  systems:        $OSES (boots: $BOOT_OS)"
 echo "  default boot:   $([ $DEFAULT_LINUX = 1 ] && echo Linux || echo Android, Linux on demand)"
 echo "  filesystem:     $([ $FORMAT = 1 ] && echo "CREATE new ext4 (erases the Linux region)" || echo "keep existing")"
@@ -154,7 +237,14 @@ ask confirm "Type INSTALL to continue" no
 
 say "Copying to the device"
 adb push "$TOP/tools/android-mount-mu300root.sh" "$TOP/tools/android-install.sh" $T/ >/dev/null
-for os in $OSES; do adb push "$WORK/mu300-$os.tar.gz" $T/mu300-$os.tar.gz >/dev/null; done
+for os in $OSES; do
+    if [ $MODE = prebuilt ]; then
+        adb push "$REL/mu300-$os-rootfs.tar.gz" $T/mu300-$os.tar.gz >/dev/null
+        adb push "$WORK/mu300-vendor-$os.tar.gz" $T/mu300-vendor-$os.tar.gz >/dev/null
+    else
+        adb push "$WORK/mu300-$os.tar.gz" $T/mu300-$os.tar.gz >/dev/null
+    fi
+done
 env=$(mktemp)
 printf 'OFF=%s\nSIZE=%s\nOFF_S=%s\nSIZE_S=%s\nFORMAT=%s\nOSES="%s"\nWIPE_LEGACY=%s\nBOOT_OS=%s\nDEFAULT_LINUX=%s\nIMPORT_HOTSPOT=%s\nPWHASH='"'"'%s'"'"'\n' \
   "$OFF" "$SIZE" "$((OFF / 512))" "$((SIZE / 512))" "$FORMAT" "$OSES" "$WIPE_LEGACY" "$BOOT_OS" "$DEFAULT_LINUX" "$IMPORT_HOTSPOT" "$PWHASH" > "$env"

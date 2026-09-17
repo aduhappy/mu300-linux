@@ -81,25 +81,35 @@ Related: the kernel source used here is mirrored at
 
 * A rooted MU300/F50 with the boot verification bypass (Android must already boot a modified `boot` image),
   `adb` access, and a tested SPD/BROM recovery path.
-* macOS or Linux host with Docker (arm64 native or emulation), Python 3, `lz4`, `adb`.
-* Your own dumps: `boot_a.img` and the first 4 KiB of `misc` (`dd if=/dev/block/by-name/misc bs=4096 count=1`).
+* macOS or Linux host with `adb`, Python 3, `lz4` and `curl`; building locally (`--build`, `kernel/build-all.sh`) also
+  needs Docker (arm64 native or emulation).
+* The installer dumps `boot_a` and the first 4 KiB of `misc` from your device itself (they stay in `work/`).
 
 ## Quick install
 
-With the kernel built (step 1 below; outputs in `out/`: `Image`, `modules/`, `modules.builtin*`), the device in rooted
-Android and Docker running:
+With the device in rooted Android (see Requirements) and connected over adb:
 
 ```sh
-./install.sh
+./install.sh --check   # does this device have the free eMMC region, and is it empty? writes nothing
+./install.sh           # install from the prebuilt release images (needs adb, python3, lz4, curl)
+./install.sh --build   # or build everything locally first (needs Docker, see "Build and run")
 ```
 
+`--check` reads the GPT from the device and reports the eMMC size, where the partitions end and how much unpartitioned
+space follows them (about 32 GiB on the tested 64 GB F50), samples that region for existing data and tells whether an
+MU300 Linux installation is already there. The installer runs the same check first and stops on devices with a
+different layout; a region that is not empty has to be confirmed explicitly.
+
 The installer
-* checks the device and finds the unpartitioned eMMC space after the last partition (or the existing `mu300root` ext4),
 * asks which systems to install (Ubuntu, OpenWrt or both), which one boots, whether Linux is the default boot, whether to
   copy Android's hotspot name/password and whether to include the GPU userspace, and asks for a password
   (`ubuntu` user on Ubuntu, `root` on OpenWrt),
-* pulls the vendor files it needs from the device into `work/` (never into the repository), builds both root filesystems
-  and the boot image, and shows a summary that must be confirmed with `INSTALL`,
+* pulls the vendor files it needs from the device into `work/` (never into the repository),
+* prebuilt: downloads the images of the pinned release (`MU300_RELEASE`) from GitHub and verifies their SHA-256; the
+  published images contain no proprietary files, so the Wi-Fi/Bluetooth firmware and the Android modem/GPU userspace
+  from *your* device are added as an overlay during installation (`tools/vendor-overlay.py`),
+* `--build`: builds both root filesystems with Docker from the kernel outputs in `out/` (`kernel/build-all.sh`),
+* builds the boot image from your own `boot_a`, shows a summary that must be confirmed with `INSTALL`,
 * unpacks the systems to `/ubuntu` and `/openwrt` on the Linux filesystem, writes `boot_b` and arms slot b, and reboots.
 
 Only the Linux region, `boot_b` and 32 bytes of `misc` are written; `boot_a`, the GPT and `userdata` stay untouched. After
@@ -114,6 +124,12 @@ overwrite the eMMC); the installed OpenWrt blocks it. Updating packages with `ap
 ## Build and run
 
 ### 1. Kernel
+One step, from the pinned public sources (kernel tree, realme Wi-Fi/Bluetooth/Mali modules) with all patches applied:
+```sh
+kernel/build-all.sh    # -> out/Image, out/modules/*.ko, out/modules.builtin*  (about 10 minutes on Apple silicon)
+```
+Maintainers publish the prebuilt images with `tools/make-release.sh TAG --publish` (it refuses to publish if an image
+contains firmware, Android files, host keys or local settings). The manual steps behind `build-all.sh`:
 ```sh
 git clone https://github.com/dikeckaan/zte-ums9620-kernel-5.4.254   # or the Enceka U30 Air repo
 docker build -t mu300-kbuild kernel/

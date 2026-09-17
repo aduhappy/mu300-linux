@@ -4,6 +4,7 @@
 #   OFF_S SIZE_S       the same in 512-byte sectors (Android's mksh has 32-bit arithmetic: never compute with bytes)
 #   FORMAT=0|1         create the ext4 filesystem "mu300root" in that region
 #   OSES="ubuntu openwrt"  systems to (re)install from /data/local/tmp/mu300-<os>.tar.gz
+#                      (plus mu300-vendor-<os>.tar.gz with the device's own vendor files for prebuilt images)
 #   WIPE_LEGACY=0|1    remove a first-generation Ubuntu that lives directly in the filesystem root
 #   BOOT_OS            system started by the initramfs
 #   DEFAULT_LINUX=0|1  keep booting Linux (otherwise every Linux boot is one-shot and returns to Android)
@@ -72,6 +73,11 @@ for os in $OSES; do
     say "installing $os"
     rm -rf $M/$os.new && mkdir $M/$os.new
     tar -xzpf $tarball -C $M/$os.new
+    # prebuilt images: firmware and Android userspace pulled from this device by install.sh (tools/vendor-overlay.py)
+    if [ -f $T/mu300-vendor-$os.tar.gz ]; then
+        tar -xzpf $T/mu300-vendor-$os.tar.gz -C $M/$os.new
+        rm -f $T/mu300-vendor-$os.tar.gz
+    fi
     rm -rf $M/$os && mv $M/$os.new $M/$os
     R=$M/$os
     mkdir -p $R/etc/mu300
