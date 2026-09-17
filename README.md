@@ -76,6 +76,16 @@ It asks a few questions (Ubuntu, OpenWrt or both; which one boots; a password), 
 copies the Wi-Fi and modem files from your own device, shows exactly what it is about to write, and waits for you to
 type `INSTALL`. Then it reboots into Linux.
 
+If Linux is already installed it asks whether to **update** or **wipe**:
+
+* **update** — reinstalls the systems but keeps your settings and data: `/etc/mu300` (hotspot, VPN, toolkit), user
+  accounts and home directories, `/usr/local`, SSH host keys, OpenWrt's UCI config, and the services you enabled
+  yourself.
+* **wipe** — erases the Linux filesystem and installs from scratch.
+
+If the device is running Linux rather than Android when you start, the installer notices and offers to reboot it
+into Android for you over SSH.
+
 **Step 3 — log in.** Wait about a minute, then on the computer it is plugged into:
 
 ```sh
@@ -125,7 +135,14 @@ With the device back in Android:
 ```
 
 It makes Android the boot system again, restores the second boot partition and erases the Linux filesystem. Your
-Android data is left alone.
+Android data is left alone. You choose how thorough the erase is:
+
+* **secure** (default) — overwrites the whole 32 GiB region and then verifies it is empty, so your files are really
+  gone. Takes a few minutes.
+* **quick** — only erases the filesystem headers; the files stay readable on the flash until the space is reused.
+* **keep** — leaves the Linux filesystem alone; it simply never boots again.
+
+Like the installer, it offers to reboot the device from Linux into Android first.
 
 ## What works and what does not
 

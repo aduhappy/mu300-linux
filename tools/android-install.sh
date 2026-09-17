@@ -6,6 +6,7 @@
 #   OSES="ubuntu openwrt"  systems to (re)install from /data/local/tmp/mu300-<os>.tar.gz
 #                      (plus mu300-vendor-<os>.tar.gz with the device's own vendor files for prebuilt images)
 #   WIPE_LEGACY=0|1    remove a first-generation Ubuntu that lives directly in the filesystem root
+#   UPDATE=0|1         keep the settings and user data of the systems being reinstalled
 #   BOOT_OS            system started by the initramfs
 #   DEFAULT_LINUX=0|1  keep booting Linux (otherwise every Linux boot is one-shot and returns to Android)
 #   PWHASH             SHA-512 crypt hash for the "ubuntu" (Ubuntu) and "root" (OpenWrt) accounts
@@ -78,10 +79,54 @@ for os in $OSES; do
         tar -xzpf $T/mu300-vendor-$os.tar.gz -C $M/$os.new
         rm -f $T/mu300-vendor-$os.tar.gz
     fi
+    # update: carry the settings and user data of the previous installation over to the new system
+    if [ "${UPDATE:-0}" = 1 ] && [ -d $M/$os ]; then
+        case $os in
+            ubuntu) keep="etc/mu300 etc/ssh etc/hostname etc/localtime etc/timezone etc/fstab home root srv usr/local var/lib/bluetooth" ;;
+            openwrt) keep="etc/config etc/mu300 etc/dropbear etc/rc.local root" ;;
+        esac
+        kept=
+        for k in $keep; do
+            [ -e "$M/$os/$k" ] || continue
+            mkdir -p "$M/$os.new/$(dirname $k)"
+            rm -rf "$M/$os.new/$k"
+            cp -a "$M/$os/$k" "$M/$os.new/$k" && kept="$kept $k"
+        done
+        # services the user enabled or disabled themselves: copy the extra symlinks over, but only when the unit
+        # they point at exists in the new system (stale units from an older release must not come back)
+        extra=
+        case $os in
+            ubuntu)
+                for w in $M/$os/etc/systemd/system/*.wants; do
+                    [ -d "$w" ] || continue
+                    t=${w##*/}
+                    for l in "$w"/*; do
+                        # -L, not -e: the links point at absolute paths inside the Linux root, so from Android
+                        # they all look broken
+                        [ -L "$l" ] || [ -e "$l" ] || continue
+                        u=${l##*/}
+                        if [ -L "$M/$os.new/etc/systemd/system/$t/$u" ]; then continue; fi
+                        [ -e "$M/$os.new/etc/systemd/system/$u" ] || [ -e "$M/$os.new/usr/lib/systemd/system/$u" ] || continue
+                        mkdir -p "$M/$os.new/etc/systemd/system/$t"
+                        cp -a "$l" "$M/$os.new/etc/systemd/system/$t/$u" && extra="$extra $u"
+                    done
+                done ;;
+            openwrt)
+                for l in $M/$os/etc/rc.d/*; do
+                    [ -L "$l" ] || [ -e "$l" ] || continue
+                    u=${l##*/}
+                    if [ -L "$M/$os.new/etc/rc.d/$u" ]; then continue; fi
+                    [ -x "$M/$os.new/etc/init.d/${u#S??}" ] || [ -x "$M/$os.new/etc/init.d/${u#K??}" ] || continue
+                    cp -a "$l" "$M/$os.new/etc/rc.d/$u" && extra="$extra $u"
+                done ;;
+        esac
+        say "kept from the previous $os:$kept"
+        [ -n "$extra" ] && say "kept enabled services:$extra"
+    fi
     rm -rf $M/$os && mv $M/$os.new $M/$os
     R=$M/$os
     mkdir -p $R/etc/mu300
-    if [ -n "$ssid" ]; then
+    if [ -n "$ssid" ] && ! { [ "${UPDATE:-0}" = 1 ] && [ -s $R/etc/mu300/hotspot.conf ]; }; then
         umask 077
         printf 'SSID=%s\nPSK=%s\nBAND=5\nCHANNEL=auto\nCOUNTRY=TR\n' "$ssid" "$psk" > $R/etc/mu300/hotspot.conf
         chmod 600 $R/etc/mu300/hotspot.conf

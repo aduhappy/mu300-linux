@@ -13,6 +13,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $T = '/data/local/tmp'
+$MU300_IP = '192.168.77.1'
 
 function Say($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 function Die($m) { Write-Host "`nERROR: $m" -ForegroundColor Red; exit 1 }
@@ -37,7 +38,20 @@ function Hex32 { (SuDo 'dd if=/dev/block/by-name/misc bs=1 skip=2048 count=32 2>
 
 Say 'Checking host tools and device'
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) { Die 'adb not found' }
-if ((& adb get-state 2>$null) -notmatch 'device') { Die 'no adb device (boot Android, enable USB debugging)' }
+if ((& adb get-state 2>$null) -notmatch 'device') {
+    $linux = Test-NetConnection -ComputerName $MU300_IP -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue
+    if (-not $linux) { Die 'no adb device (boot Android, enable USB debugging)' }
+    Say 'The device is running MU300 Linux, not Android'
+    Write-Host '  Uninstalling happens from Android (slot a), so the device has to reboot first.'
+    if ((Ask 'Reboot the device into Android now? (yes/no)' 'yes') -ne 'yes') { Die 'boot Android yourself (in Linux: sudo mu300-next-boot android && sudo reboot)' }
+    foreach ($u in 'ubuntu', 'root') {
+        & ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o LogLevel=ERROR -o ConnectTimeout=8 "$u@$MU300_IP" `
+            'command -v sudo >/dev/null && sudo mu300-next-boot android || mu300-next-boot android; sync; (sleep 2; reboot) >/dev/null 2>&1 &' 2>$null
+        if ($LASTEXITCODE -eq 0) { break }
+    }
+    for ($i = 0; $i -lt 60; $i++) { if ((& adb get-state 2>$null) -match 'device') { break }; Start-Sleep 5 }
+    if ((& adb get-state 2>$null) -notmatch 'device') { Die 'the device did not come back as Android' }
+}
 if ((SuDo 'id -u') -ne '0') { Die 'su does not work on the device' }
 $model = "$(SuDo 'getprop ro.product.model') / $(SuDo 'getprop ro.product.device')"
 Write-Host "device: $model"
@@ -68,9 +82,16 @@ if ($OFF -gt 0) {
 $BC = Hex32
 
 Say 'What should be removed?'
-$wipe = Ask 'Erase the Linux filesystem: quick (headers only, space reusable) / full (zero-fill, takes minutes) / keep' 'quick'
-if ($wipe -notin @('quick', 'full', 'keep')) { Die 'invalid choice' }
-if ($OFF -eq 0) { $wipe = 'keep' }
+$wipe = 'keep'
+if ($OFF -gt 0) {
+    Write-Host "  secure  overwrite the whole $([int64]($SIZE / 1GB)) GiB region and verify (recommended, takes a few"
+    Write-Host '          minutes; your files are really gone afterwards)'
+    Write-Host '  quick   only erase the filesystem headers (fast, but the files stay readable on the flash)'
+    Write-Host '  keep    leave the Linux filesystem in place (it just never boots again)'
+    $wipe = Ask 'Erase the Linux filesystem: secure / quick / keep' 'secure'
+    if ($wipe -eq 'full') { $wipe = 'secure' }
+    if ($wipe -notin @('secure', 'quick', 'keep')) { Die 'invalid choice' }
+}
 Write-Host ''
 Write-Host '  misc:     boot slot a (Android), Linux boot disabled'
 Write-Host '  boot_b:   replaced with a copy of boot_a (stock Android boot image)'
@@ -122,12 +143,19 @@ if ($wipe -ne 'keep') {
     if ($wipe -eq 'quick') {
         SuDo "dd if=/dev/zero of=/dev/block/mmcblk0 bs=1048576 seek=$skip count=64 conv=notrunc 2>/dev/null; sync" | Out-Null
     } else {
-        Write-Host "zero-filling $mib MiB, this takes several minutes"
-        SuDo "dd if=/dev/zero of=/dev/block/mmcblk0 bs=1048576 seek=$skip count=$mib conv=notrunc 2>/dev/null; sync" | Out-Null
+        Write-Host "overwriting $([int64]($mib / 1024)) GiB, this takes a few minutes"
+        SuDo "command -v blkdiscard >/dev/null && blkdiscard -o $OFF -l $SIZE /dev/block/mmcblk0 2>/dev/null; dd if=/dev/zero of=/dev/block/mmcblk0 bs=1048576 seek=$skip count=$mib conv=notrunc 2>/dev/null; sync" | Out-Null
     }
     $m = (SuDo "dd if=/dev/block/mmcblk0 bs=1 skip=$($OFF + 1080) count=2 2>/dev/null | od -An -tx1") -replace '\s', ''
     if ($m -eq '53ef') { Die 'the filesystem signature is still there' }
-    Write-Host 'erased'
+    if ($wipe -eq 'secure') {
+        $step = [int64]($mib / 32) + 1
+        $left = [int](SuDo "n=0; s=$skip; e=$($skip + $mib); while [ `$s -lt `$e ]; do c=`$(dd if=/dev/block/mmcblk0 bs=1048576 skip=`$s count=1 2>/dev/null | tr -d `"\000`" | wc -c); [ `$c -gt 0 ] && n=`$((n + 1)); s=`$((s + $step)); done; echo `$n").Trim()
+        if ($left -ne 0) { Die "$left of 32 samples still contain data; run the secure erase again" }
+        Write-Host 'erased and verified (32 samples across the region are empty)'
+    } else {
+        Write-Host 'erased (headers only)'
+    }
 }
 
 SuDo "grep -q "" $T/mu300root "" /proc/mounts || rm -rf $T/mu300root; rm -f $T/mu300-* $T/android-install.sh $T/android-mount-mu300root.sh" | Out-Null

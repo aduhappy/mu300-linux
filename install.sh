@@ -43,7 +43,8 @@ for c in $need; do command -v $c >/dev/null || die "$c not found"; done
 if [ $CHECK_ONLY = 0 ] && [ $MODE = build ]; then
     [ -f "$KOUT/Image" ] && ls "$KOUT"/modules/*.ko >/dev/null 2>&1 || die "kernel outputs missing in $KOUT (run kernel/build-all.sh)"
 fi
-adb get-state </dev/null >/dev/null 2>&1 || die "no adb device (boot Android, enable USB debugging)"
+. "$TOP/tools/linux-mode.sh"
+require_android
 [ "$(su_do 'id -u')" = 0 ] || die "su does not work on the device"
 model="$(su_do 'getprop ro.product.model') / $(su_do 'getprop ro.product.device')"
 echo "device: $model"
@@ -111,15 +112,24 @@ BOOT_OS=${OSES%% *}
 [ "$choice" = 3 ] && { ask BOOT_OS "Which one should boot (ubuntu/openwrt)" ubuntu; case $BOOT_OS in ubuntu|openwrt) ;; *) die "invalid system" ;; esac; }
 ask dl "Boot Linux by default instead of Android (falls back to Android if Linux fails)? (yes/no)" yes
 DEFAULT_LINUX=0; [ "$dl" = yes ] && DEFAULT_LINUX=1
-ask hs "Copy Android's hotspot name and password to Linux? (yes/no)" yes
+ask hs "Copy Android's hotspot name and password to Linux? (yes/no)" yes  # kept as-is when updating
 IMPORT_HOTSPOT=0; [ "$hs" = yes ] && IMPORT_HOTSPOT=1
 ask gpu "Include the Mali GPU (OpenCL) userspace (~90 MiB)? (yes/no)" yes
-FORMAT=0; WIPE_LEGACY=0
+FORMAT=0; WIPE_LEGACY=0; UPDATE=0
 if [ $existing = no ]; then
     FORMAT=1
 else
-    ask fmt "Keep the existing Linux filesystem (other installed systems stay)? (yes = keep / format)" yes
-    [ "$fmt" = format ] && FORMAT=1
+    echo
+    echo "  A MU300 Linux installation is already on this device."
+    echo "    update  reinstall the systems and keep settings and data (/etc/mu300, users and home directories,"
+    echo "            SSH host keys, OpenWrt UCI config; the hotspot settings are kept too)"
+    echo "    wipe    erase the Linux filesystem and install from scratch"
+    ask mode "update or wipe" update
+    case $mode in
+        update) UPDATE=1 ;;
+        wipe) FORMAT=1 ;;
+        *) die "invalid choice" ;;
+    esac
     # a new /ubuntu replaces an Ubuntu installed directly in the filesystem root (first-generation layout)
     case " $OSES " in *" ubuntu "*) [ $FORMAT = 0 ] && WIPE_LEGACY=1 ;; esac
 fi
@@ -231,7 +241,8 @@ echo "  source:         $([ $MODE = prebuilt ] && echo "prebuilt release $RELEAS
 echo "  systems:        $OSES (boots: $BOOT_OS)"
 echo "  default boot:   $([ $DEFAULT_LINUX = 1 ] && echo Linux || echo Android, Linux on demand)"
 echo "  filesystem:     $([ $FORMAT = 1 ] && echo "CREATE new ext4 (erases the Linux region)" || echo "keep existing")"
-[ $WIPE_LEGACY = 1 ] && echo "  note:           the chosen systems are installed fresh; their previous files and settings are replaced"
+[ $UPDATE = 1 ] && echo "  update:         settings and user data of the chosen systems are kept, everything else is replaced"
+[ $UPDATE = 0 ] && [ $FORMAT = 0 ] && echo "  note:           the chosen systems are installed fresh; their previous files and settings are replaced"
 echo "  writes:         Linux region at offset $OFF, boot_b, 32 bytes of misc (boot_a, GPT and userdata are not touched)"
 ask confirm "Type INSTALL to continue" no
 [ "$confirm" = INSTALL ] || die "cancelled"
@@ -247,8 +258,8 @@ for os in $OSES; do
     fi
 done
 env=$(mktemp)
-printf 'OFF=%s\nSIZE=%s\nOFF_S=%s\nSIZE_S=%s\nFORMAT=%s\nOSES="%s"\nWIPE_LEGACY=%s\nBOOT_OS=%s\nDEFAULT_LINUX=%s\nIMPORT_HOTSPOT=%s\nPWHASH='"'"'%s'"'"'\n' \
-  "$OFF" "$SIZE" "$((OFF / 512))" "$((SIZE / 512))" "$FORMAT" "$OSES" "$WIPE_LEGACY" "$BOOT_OS" "$DEFAULT_LINUX" "$IMPORT_HOTSPOT" "$PWHASH" > "$env"
+printf 'OFF=%s\nSIZE=%s\nOFF_S=%s\nSIZE_S=%s\nFORMAT=%s\nOSES="%s"\nWIPE_LEGACY=%s\nUPDATE=%s\nBOOT_OS=%s\nDEFAULT_LINUX=%s\nIMPORT_HOTSPOT=%s\nPWHASH='"'"'%s'"'"'\n' \
+  "$OFF" "$SIZE" "$((OFF / 512))" "$((SIZE / 512))" "$FORMAT" "$OSES" "$WIPE_LEGACY" "$UPDATE" "$BOOT_OS" "$DEFAULT_LINUX" "$IMPORT_HOTSPOT" "$PWHASH" > "$env"
 adb push "$env" $T/mu300-install.env >/dev/null; rm -f "$env"
 su_do "sh $T/android-install.sh" | tee "$WORK/device-install.log"
 grep -q MU300-INSTALL-OK "$WORK/device-install.log" || die "installation on the device failed; boot_b and misc were not changed"

@@ -24,6 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $T = '/data/local/tmp'
 $Top = $PSScriptRoot
+$MU300_IP = '192.168.77.1'
 
 function Say($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 function Die($m) { Write-Host "`nERROR: $m" -ForegroundColor Red; exit 1 }
@@ -62,7 +63,28 @@ if (-not $Check) {
     if ($LASTEXITCODE -ne 0) { Die 'the lz4 Python module is required to build the boot image: pip install lz4' }
 }
 & adb start-server 2>$null | Out-Null
-if ((& adb get-state 2>$null) -notmatch 'device') { Die 'no adb device (boot Android, enable USB debugging)' }
+if ((& adb get-state 2>$null) -notmatch 'device') {
+    # the device may be running MU300 Linux right now: then only SSH on the USB network answers
+    $linux = Test-NetConnection -ComputerName $MU300_IP -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue
+    if (-not $linux) { Die 'no adb device (boot Android, enable USB debugging)' }
+    Say 'The device is running MU300 Linux, not Android'
+    Write-Host '  Installing and uninstalling happen from Android (slot a), so the device has to reboot first.'
+    Write-Host '  I can ask it over SSH; you will be prompted for its password.'
+    if ((Ask 'Reboot the device into Android now? (yes/no)' 'yes') -ne 'yes') { Die 'boot Android yourself (in Linux: sudo mu300-next-boot android && sudo reboot)' }
+    foreach ($u in 'ubuntu', 'root') {
+        Write-Host "  trying $u@$MU300_IP"
+        & ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o LogLevel=ERROR -o ConnectTimeout=8 "$u@$MU300_IP" `
+            'command -v sudo >/dev/null && sudo mu300-next-boot android || mu300-next-boot android; sync; (sleep 2; reboot) >/dev/null 2>&1 &' 2>$null
+        if ($LASTEXITCODE -eq 0) { break }
+    }
+    Write-Host '  waiting for Android'
+    for ($i = 0; $i -lt 60; $i++) {
+        if ((& adb get-state 2>$null) -match 'device') { break }
+        Start-Sleep 5
+    }
+    if ((& adb get-state 2>$null) -notmatch 'device') { Die 'the device did not come back as Android; boot it yourself (mu300-next-boot android)' }
+    Write-Host '  Android is up'
+}
 if ((SuDo 'id -u') -ne '0') { Die 'su does not work on the device' }
 $model = "$(SuDo 'getprop ro.product.model') / $(SuDo 'getprop ro.product.device')"
 Write-Host "device: $model"
@@ -135,11 +157,20 @@ if ($OSES.Count -eq 2) {
 $DEFAULT_LINUX = if ((Ask 'Boot Linux by default instead of Android (falls back to Android if Linux fails)? (yes/no)' 'yes') -eq 'yes') { 1 } else { 0 }
 $IMPORT_HOTSPOT = if ((Ask "Copy Android's hotspot name and password to Linux? (yes/no)" 'yes') -eq 'yes') { 1 } else { 0 }
 $gpu = Ask 'Include the Mali GPU (OpenCL) userspace (~90 MiB)? (yes/no)' 'yes'
-$FORMAT = 0; $WIPE_LEGACY = 0
+$FORMAT = 0; $WIPE_LEGACY = 0; $UPDATE = 0
 if ($existing -eq 'no') {
     $FORMAT = 1
 } else {
-    if ((Ask 'Keep the existing Linux filesystem (other installed systems stay)? (yes = keep / format)' 'yes') -eq 'format') { $FORMAT = 1 }
+    Write-Host ''
+    Write-Host '  A MU300 Linux installation is already on this device.'
+    Write-Host '    update  reinstall the systems and keep settings and data (/etc/mu300, users and home directories,'
+    Write-Host '            /usr/local, SSH host keys, OpenWrt UCI config, services you enabled yourself)'
+    Write-Host '    wipe    erase the Linux filesystem and install from scratch'
+    switch (Ask 'update or wipe' 'update') {
+        'update' { $UPDATE = 1 }
+        'wipe' { $FORMAT = 1 }
+        default { Die 'invalid choice' }
+    }
     if ($FORMAT -eq 0 -and $OSES -contains 'ubuntu') { $WIPE_LEGACY = 1 }
 }
 $pw1 = Read-Host -AsSecureString 'Password for the "ubuntu" user (Ubuntu) and "root" (OpenWrt)'
@@ -210,6 +241,7 @@ Write-Host "  source:         prebuilt release $Release + vendor files from this
 Write-Host "  systems:        $($OSES -join ' ') (boots: $BOOT_OS)"
 Write-Host "  default boot:   $(if ($DEFAULT_LINUX -eq 1) { 'Linux' } else { 'Android, Linux on demand' })"
 Write-Host "  filesystem:     $(if ($FORMAT -eq 1) { 'CREATE new ext4 (erases the Linux region)' } else { 'keep existing' })"
+if ($UPDATE -eq 1) { Write-Host '  update:         settings and user data of the chosen systems are kept, everything else is replaced' }
 Write-Host "  writes:         Linux region at offset $OFF, boot_b, 32 bytes of misc (boot_a, GPT and userdata are not touched)"
 if ((Ask 'Type INSTALL to continue' 'no') -ne 'INSTALL') { Die 'cancelled' }
 
@@ -221,7 +253,7 @@ foreach ($os in $OSES) {
 }
 $envFile = "$Work\mu300-install.env"
 $lines = @("OFF=$OFF", "SIZE=$SIZE", "OFF_S=$($OFF / 512)", "SIZE_S=$($SIZE / 512)", "FORMAT=$FORMAT",
-    "OSES=`"$($OSES -join ' ')`"", "WIPE_LEGACY=$WIPE_LEGACY", "BOOT_OS=$BOOT_OS", "DEFAULT_LINUX=$DEFAULT_LINUX",
+    "OSES=`"$($OSES -join ' ')`"", "WIPE_LEGACY=$WIPE_LEGACY", "UPDATE=$UPDATE", "BOOT_OS=$BOOT_OS", "DEFAULT_LINUX=$DEFAULT_LINUX",
     "IMPORT_HOTSPOT=$IMPORT_HOTSPOT", "PWHASH='$PWHASH'")
 WriteUnix $envFile (($lines -join "`n") + "`n")
 & adb push $envFile "$T/mu300-install.env" | Out-Null
