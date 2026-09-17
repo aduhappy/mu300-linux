@@ -40,5 +40,5 @@ done
 ln -sfn /opt/mu300/bin/mu300-toolkit $R/usr/local/bin/mu300-toolkit
 # no graphical/serial login noise on a headless dongle; keep ttyS1 console for debugging
 ln -sfn /dev/null $R/etc/systemd/system/getty@tty1.service
-cd $R && tar --numeric-owner -czf /w/mu300-ubuntu-26.04-rootfs.tar.gz .
-ls -la /w/mu300-ubuntu-26.04-rootfs.tar.gz; du -sh $R
+cd $R && tar --numeric-owner -czf /w/mu300-ubuntu-24.04-rootfs.tar.gz .
+ls -la /w/mu300-ubuntu-24.04-rootfs.tar.gz; du -sh $R

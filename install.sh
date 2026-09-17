@@ -101,7 +101,7 @@ fi
 
 # ---------------------------------------------------------------- choices
 say "What should be installed?"
-echo "  1) Ubuntu 26.04 LTS (full distribution, apt, ~500 MiB RAM in use)"
+echo "  1) Ubuntu 24.04 LTS (full distribution, apt, ~500 MiB RAM in use)"
 echo "  2) OpenWrt $OWRT_VER (router, LuCI web UI, ~140 MiB RAM in use)"
 echo "  3) both (switch later with: mu300-os ubuntu|openwrt)"
 ask choice "Choice" 3
@@ -179,8 +179,8 @@ say "Building helper binaries"
 mkdir -p "$WORK/out" "$WORK/tools/logdw" "$WORK/tools/bt-init" "$WORK/tools/gpu"
 rm -rf "$WORK/out/modules" && cp -R "$KOUT/modules" "$WORK/out/modules"
 cp "$KOUT/modules.builtin" "$KOUT/modules.builtin.modinfo" "$WORK/out/" 2>/dev/null || true
-docker build -q -t mu300-ubuntu:26.04 "$TOP/rootfs" >/dev/null
-docker run --rm mu300-ubuntu:26.04 cat /bin/busybox > "$WORK/busybox"; chmod +x "$WORK/busybox"
+docker build -q -t mu300-ubuntu:24.04 "$TOP/rootfs" >/dev/null
+docker run --rm mu300-ubuntu:24.04 cat /bin/busybox > "$WORK/busybox"; chmod +x "$WORK/busybox"
 docker run --rm -v "$TOP/tools":/src:ro -v "$WORK/tools":/o mu300-kbuild sh -c '
   gcc -O2 -static -o /o/logdw/logdw /src/logdw/logdw.c &&
   gcc -O2 -static -o /o/bt-init/mu300-bt-init /src/bt-init/mu300-bt-init.c'
@@ -199,14 +199,14 @@ case " $OSES " in *" ubuntu "*) reuse ubuntu || {
     say "Building the Ubuntu root filesystem"
     B=$(mktemp -d "$WORK/ubuntu-build.XXXX")
     tar -C "$TOP/rootfs" --exclude ./base.tar --exclude './*.tar.gz' -cf - . | tar -xf - -C "$B"
-    cid=$(docker create mu300-ubuntu:26.04 /bin/true); docker export "$cid" > "$B/base.tar"; docker rm "$cid" >/dev/null
+    cid=$(docker create mu300-ubuntu:24.04 /bin/true); docker export "$cid" > "$B/base.tar"; docker rm "$cid" >/dev/null
     gpuargs=""
     [ -d "$WORK/android-gpu-subset" ] && gpuargs="-v $WORK/android-gpu-subset:/android-gpu-subset:ro -v $WORK/tools/gpu/cltest:/cltest:ro"
     # shellcheck disable=SC2086
     docker run --rm -v "$B":/w -v "$WORK/out/modules":/kmods:ro -v "$WORK/out":/kout:ro -v "$WORK/firmware":/firmware:ro \
       -v "$WORK/android-subset":/android-subset:ro -v "$WORK/tools/logdw/logdw":/logdw:ro \
-      -v "$WORK/tools/bt-init/mu300-bt-init":/bt-init:ro $gpuargs mu300-ubuntu:26.04 bash /w/assemble.sh >/dev/null
-    mv "$B/mu300-ubuntu-26.04-rootfs.tar.gz" "$WORK/mu300-ubuntu.tar.gz"; rm -rf "$B"; } ;;
+      -v "$WORK/tools/bt-init/mu300-bt-init":/bt-init:ro $gpuargs mu300-ubuntu:24.04 bash /w/assemble.sh >/dev/null
+    mv "$B/mu300-ubuntu-24.04-rootfs.tar.gz" "$WORK/mu300-ubuntu.tar.gz"; rm -rf "$B"; } ;;
 esac
 case " $OSES " in *" openwrt "*) reuse openwrt || {
     say "Building the OpenWrt root filesystem"
@@ -214,7 +214,7 @@ case " $OSES " in *" openwrt "*) reuse openwrt || {
     mv "$TOP/openwrt/mu300-openwrt-rootfs.tar.gz" "$WORK/mu300-openwrt.tar.gz"; } ;;
 esac
 BUSYBOX=$WORK/busybox; LOGDW=$WORK/tools/logdw/logdw
-PWHASH=$(printf '%s' "$pw1" | docker run --rm -i mu300-ubuntu:26.04 openssl passwd -6 -stdin)
+PWHASH=$(printf '%s' "$pw1" | docker run --rm -i mu300-ubuntu:24.04 openssl passwd -6 -stdin)
 fi
 
 say "Building the boot image"

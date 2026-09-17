@@ -115,7 +115,10 @@ average. `top` shows about 98 % idle.
   refuse to attach the same offset twice (two loops mounting one ext4 corrupted it once).
 * Toybox `od` on 64 MiB is extremely slow; never interrupt a safety check, an interrupted pipeline "passed" once.
 
-## Ubuntu 26.04 LTS on kernel 5.4
+## Ubuntu on kernel 5.4
+
+The root filesystem moved from Ubuntu 26.04 to 24.04 LTS: 26.04's userland starts to depend on syscalls newer than
+5.4 (below), 24.04 is supported until 2029 and runs on 5.4 without workarounds.
 
 ### 11. systemd 259 works on 5.4
 5.4 is systemd's minimum baseline; the system boots to `running` with the `old-kernel` taint.
@@ -128,9 +131,10 @@ average. `top` shows about 98 % idle.
 * Fix: `ifconfig usb0 up` immediately after binding the UDC in the initramfs.
 
 ### 13. Userland needing newer syscalls
-* Ubuntu 26.04's GNU `tar` fails with `Function not implemented` when extracting (it relies on `openat2`,
-  Linux 5.6). Use busybox `tar` on the device or extract from another system.
-* `ssh.service` is socket-activated on 26.04; enable `ssh.socket`, not only `ssh.service`.
+* Ubuntu 26.04's GNU `tar` (1.35+dfsg-4ubuntu0.4) fails with `Cannot stat: Function not implemented` for every
+  path, creating and extracting: it resolves paths with `openat2` (Linux 5.6) and has no fallback. 24.04's tar does
+  not use `openat2`.
+* `ssh.service` is socket-activated (24.04 and 26.04); enable `ssh.socket`, not only `ssh.service`.
 * Extracting an archive that contains a `lib/` directory over Ubuntu replaces the `/lib -> usr/lib` symlink with a
   directory (systemd then disappears). Always ship files under `usr/lib/...`.
 * `docker export` leaves `/etc/hostname` empty.

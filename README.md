@@ -1,11 +1,11 @@
 # Linux on the ZTE F50 / MU300 (Unisoc T760)
 
-Ubuntu 26.04 LTS with systemd, SSH, telnet, a USB serial console, a working modem/PM co-processor and
+Ubuntu 24.04 LTS with systemd, SSH, telnet, a USB serial console, a working modem/PM co-processor and
 Wi-Fi on the ZTE F50 5G mobile hotspot (hardware MU300, Unisoc T760 / UMS9620). It runs a custom
 5.4.254 kernel built from ZTE's GPL source and boots next to Android without changing the partition table.
 
 > **Türkçe özet:** ZTE F50 / MU300 (Unisoc T760) üzerinde, Android'e ve bölüm tablosuna dokunmadan,
-> ZTE'nin GPL kaynağından derlenmiş 5.4.254 kernel ile Ubuntu 26.04 LTS (systemd, SSH, telnet, USB seri
+> ZTE'nin GPL kaynağından derlenmiş 5.4.254 kernel ile Ubuntu 24.04 LTS (systemd, SSH, telnet, USB seri
 > konsol, modem ve Wi-Fi) çalıştırmak için gereken her şey. Ayrıntılar İngilizce; teknik bulguların tamamı
 > [`docs/FINDINGS.md`](docs/FINDINGS.md) içinde.
 
@@ -65,7 +65,7 @@ USB dependency chain, the PM watchdog, the `modem_control` process-name check, m
 |---|---|
 | `kernel/` | Docker build env, stock F50 config, `mu300-linux.fragment`, build scripts, Wi-Fi driver patch |
 | `boot/` | `init`, `module-order.txt`, `build-boot-image.py`, `flash-trial.sh` |
-| `rootfs/` | Ubuntu 26.04 `Dockerfile`, `assemble.sh`, systemd units and helper scripts (`overlay/`) |
+| `rootfs/` | Ubuntu 24.04 `Dockerfile`, `assemble.sh`, systemd units and helper scripts (`overlay/`) |
 | `android-vendor/` | Scripts to extract the Android runtime subset from *your* device, permission generator |
 | `tools/` | `logdw` (liblog sink), SSH/SCP/telnet/serial helpers, log collector, Android-side mount helper |
 | `docs/` | Findings and notes |
@@ -162,8 +162,8 @@ python3 android-vendor/gen-ueventd-perms.py android-subset/vendor/etc/ueventd.rc
 
 ### 3. Boot image
 ```sh
-docker build -t mu300-ubuntu:26.04 rootfs/
-docker run --rm mu300-ubuntu:26.04 cat /bin/busybox > busybox && chmod +x busybox   # static, has mdev/losetup/switch_root/telnetd
+docker build -t mu300-ubuntu:24.04 rootfs/
+docker run --rm mu300-ubuntu:24.04 cat /bin/busybox > busybox && chmod +x busybox   # static, has mdev/losetup/switch_root/telnetd
 docker run --rm -v "$PWD/tools/logdw":/w mu300-kbuild gcc -O2 -static -o /w/logdw /w/logdw.c
 python3 boot/build-boot-image.py --stock-boot dumps/boot_a.img --misc-head dumps/misc-head.bin \
   --kernel out/Image --modules out/modules --busybox busybox --logdw tools/logdw/logdw \
@@ -176,13 +176,13 @@ python3 boot/build-boot-image.py --stock-boot dumps/boot_a.img --misc-head dumps
 2. On Android (root), create the filesystem through a bounded loop device and verify offset/size first.
 3. Assemble and deploy:
 ```sh
-cid=$(docker create mu300-ubuntu:26.04); docker export $cid > rootfs/base.tar; docker rm $cid
+cid=$(docker create mu300-ubuntu:24.04); docker export $cid > rootfs/base.tar; docker rm $cid
 tools/fetch-sing-box.sh   # optional: VLESS client for mu300-vpn (pinned release, sha256-checked)
 docker run --rm -v "$PWD/rootfs":/w -v "$PWD/out/modules":/kmods:ro -v "$PWD/out":/kout:ro \
   -v "$PWD/firmware":/firmware:ro -v "$PWD/android-subset":/android-subset:ro -v "$PWD/tools/logdw/logdw":/logdw:ro \
-  -v "$PWD/tools/bt-init/mu300-bt-init":/bt-init:ro -v "$PWD/sing-box":/sing-box:ro mu300-ubuntu:26.04 bash /w/assemble.sh
+  -v "$PWD/tools/bt-init/mu300-bt-init":/bt-init:ro -v "$PWD/sing-box":/sing-box:ro mu300-ubuntu:24.04 bash /w/assemble.sh
 ```
-Push `mu300-ubuntu-26.04-rootfs.tar.gz` to the device and extract it with `tools/android-mount-mu300root.sh`.
+Push `mu300-ubuntu-24.04-rootfs.tar.gz` to the device and extract it with `tools/android-mount-mu300root.sh`.
 `firmware/` holds `wcnmodem.bin`, `gnssmodem.bin` and `wifi_board_config*.ini` from the device's `/odm/firmware`, plus
 `bt_configure_pskey.ini` and `bt_configure_rf.ini` from `/vendor/etc`.
 
