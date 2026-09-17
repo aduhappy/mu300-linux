@@ -1,0 +1,12 @@
+[Unit]
+Description=MU300 toolkit: apply the saved performance profile
+ConditionPathExists=/etc/mu300/toolkit.conf
+After=mu300-vendor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/mu300/bin/mu300-toolkit apply
+
+[Install]
+WantedBy=multi-user.target

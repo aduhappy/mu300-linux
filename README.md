@@ -161,9 +161,10 @@ python3 boot/build-boot-image.py --stock-boot dumps/boot_a.img --misc-head dumps
 3. Assemble and deploy:
 ```sh
 cid=$(docker create mu300-ubuntu:26.04); docker export $cid > rootfs/base.tar; docker rm $cid
+tools/fetch-sing-box.sh   # optional: VLESS client for mu300-vpn (pinned release, sha256-checked)
 docker run --rm -v "$PWD/rootfs":/w -v "$PWD/out/modules":/kmods:ro -v "$PWD/out":/kout:ro \
   -v "$PWD/firmware":/firmware:ro -v "$PWD/android-subset":/android-subset:ro -v "$PWD/tools/logdw/logdw":/logdw:ro \
-  -v "$PWD/tools/bt-init/mu300-bt-init":/bt-init:ro mu300-ubuntu:26.04 bash /w/assemble.sh
+  -v "$PWD/tools/bt-init/mu300-bt-init":/bt-init:ro -v "$PWD/sing-box":/sing-box:ro mu300-ubuntu:26.04 bash /w/assemble.sh
 ```
 Push `mu300-ubuntu-26.04-rootfs.tar.gz` to the device and extract it with `tools/android-mount-mu300root.sh`.
 `firmware/` holds `wcnmodem.bin`, `gnssmodem.bin` and `wifi_board_config*.ini` from the device's `/odm/firmware`, plus
@@ -188,6 +189,19 @@ copies the current Android hotspot into it before the first boot, otherwise a ra
 
 From Android, `boot/android-boot-linux.sh boot-linux-slotb.img` boots the image already on `boot_b` again without reflashing.
 If Linux ever fails before `mu300-boot-ok` runs, LK sees `tries_remaining=1` on the next boot and falls back to Android.
+
+### Toolkit
+`sudo mu300-toolkit` (Ubuntu and OpenWrt) is a raspi-config style menu: live monitor (per-core load and frequency, RAM,
+temperatures, throttling, per-interface down/up rates, eMMC I/O, busiest processes), CPU/GPU performance profiles,
+mobile data, Wi-Fi hotspot, VPN, service status and system settings. Without the menu:
+```sh
+mu300-toolkit top                       # task manager, q quits
+mu300-toolkit info
+sudo mu300-toolkit profile performance  # eco | balanced | performance, saved and re-applied at boot
+```
+Profiles only move within the SoC's frequency table (`performance` pins every core at its hardware maximum);
+overclocking beyond it is not possible because the voltage steps are fixed by the firmware, and the kernel thermal
+trips (85 °C) keep throttling in every profile.
 
 ## Credits and licenses
 

@@ -28,13 +28,16 @@ cp /logdw $R/opt/mu300/bin/logdw
 if [ -d /android-gpu-subset ]; then cp -an /android-gpu-subset/. $R/opt/mu300/android/; fi
 if [ -e /cltest ]; then install -D -m755 /cltest $R/opt/mu300/android/system/bin/cltest; fi
 if [ -e /bt-init ]; then cp /bt-init $R/opt/mu300/bin/mu300-bt-init; fi
-for u in mu300-vendor.service:sysinit.target mu300-lan.service:multi-user.target mu300-ssh-hostkeys.service:sysinit.target mu300-telnetd.service:multi-user.target serial-getty@ttyGS0.service:getty.target ssh.socket:sockets.target mu300-wifi.service:multi-user.target mu300-mobile-data.service:multi-user.target mu300-mobile-data-watch.service:multi-user.target mu300-fixups.service:sysinit.target mu300-zram.service:swap.target mu300-boot-ok.service:multi-user.target mu300-cp_diskserver.service:multi-user.target mu300-refnotify.service:multi-user.target mu300-extra-modules.service:multi-user.target mu300-hotspot.service:multi-user.target mu300-bluetooth.service:multi-user.target mu300-thermal-guard.service:multi-user.target mu300-firewall.service:sysinit.target mu300-kmsg.service:sysinit.target systemd-networkd.service:multi-user.target; do
+# VLESS client for mu300-vpn (tools/fetch-sing-box.sh)
+if [ -f /sing-box ]; then install -m755 /sing-box $R/opt/mu300/bin/sing-box; fi
+for u in mu300-vendor.service:sysinit.target mu300-lan.service:multi-user.target mu300-ssh-hostkeys.service:sysinit.target mu300-telnetd.service:multi-user.target serial-getty@ttyGS0.service:getty.target ssh.socket:sockets.target mu300-wifi.service:multi-user.target mu300-mobile-data.service:multi-user.target mu300-mobile-data-watch.service:multi-user.target mu300-fixups.service:sysinit.target mu300-zram.service:swap.target mu300-boot-ok.service:multi-user.target mu300-cp_diskserver.service:multi-user.target mu300-refnotify.service:multi-user.target mu300-extra-modules.service:multi-user.target mu300-hotspot.service:multi-user.target mu300-bluetooth.service:multi-user.target mu300-thermal-guard.service:multi-user.target mu300-firewall.service:sysinit.target mu300-kmsg.service:sysinit.target mu300-toolkit.service:multi-user.target systemd-networkd.service:multi-user.target; do
   svc=${u%%:*}; tgt=${u##*:}
   mkdir -p $R/etc/systemd/system/$tgt.wants
   src=/etc/systemd/system/$svc; [ -e $R$src ] || src=/usr/lib/systemd/system/$svc
   case $svc in serial-getty@*) src=/usr/lib/systemd/system/serial-getty@.service;; esac
   ln -sfn $src $R/etc/systemd/system/$tgt.wants/$svc
 done
+ln -sfn /opt/mu300/bin/mu300-toolkit $R/usr/local/bin/mu300-toolkit
 # no graphical/serial login noise on a headless dongle; keep ttyS1 console for debugging
 ln -sfn /dev/null $R/etc/systemd/system/getty@tty1.service
 cd $R && tar --numeric-owner -czf /w/mu300-ubuntu-26.04-rootfs.tar.gz .
