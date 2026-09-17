@@ -5,9 +5,11 @@ display) and a 16 MiB bootloader sysdump area. CONFIG_OF_RESERVED_MEM_SKIP
 (or reserved_mem_skip= on the command line) lists node names that are left
 as normal RAM. The 464 MiB modem and 24 MiB Trusty regions must stay.
 
---- a/drivers/of/Kconfig	2026-09-16 22:12:33.438467000 +0000
-+++ b/drivers/of/Kconfig	2026-09-16 22:12:33.440151958 +0000
-@@ -81,6 +81,15 @@
+diff --git a/drivers/of/Kconfig b/drivers/of/Kconfig
+index d91618641..f36e17ded 100644
+--- a/drivers/of/Kconfig
++++ b/drivers/of/Kconfig
+@@ -81,6 +81,15 @@ config OF_MDIO
  	help
  	  OpenFirmware MDIO bus (Ethernet PHY) accessors
  
@@ -23,9 +25,11 @@ as normal RAM. The 464 MiB modem and 24 MiB Trusty regions must stay.
  config OF_RESERVED_MEM
  	bool
  	depends on OF_EARLY_FLATTREE
---- a/drivers/of/fd
-+++ b/drivers/of/fd
-@@ -539,6 +539,33 @@
+diff --git a/drivers/of/fdt.c b/drivers/of/fdt.c
+index 109619c1f..a26685669 100644
+--- a/drivers/of/fdt.c
++++ b/drivers/of/fdt.c
+@@ -539,6 +539,33 @@ static int __init __reserved_mem_check_root(unsigned long node)
  	return 0;
  }
  
@@ -59,7 +63,7 @@ as normal RAM. The 464 MiB modem and 24 MiB Trusty regions must stay.
  /**
   * fdt_scan_reserved_mem() - scan a single FDT node for reserved memory
   */
-@@ -568,6 +595,11 @@
+@@ -568,6 +595,11 @@ static int __init __fdt_scan_reserved_mem(unsigned long node, const char *uname,
  	if (!of_fdt_device_is_available(initial_boot_params, node))
  		return 0;
  

@@ -10,6 +10,8 @@ is rejected). The failure aborts the controller init and makes
 Park State was removed from the Core specification in 5.0 and Hold Mode is
 not used by BlueZ, so never request either.
 
+diff --git a/net/bluetooth/hci_core.c b/net/bluetooth/hci_core.c
+index 21469934f..2f5b14861 100644
 --- a/net/bluetooth/hci_core.c
 +++ b/net/bluetooth/hci_core.c
 @@ -504,12 +504,8 @@ static void hci_setup_link_policy(struct hci_request *req)
