@@ -71,11 +71,17 @@ if ((& adb get-state 2>$null) -notmatch 'device') {
     Write-Host '  Installing and uninstalling happen from Android (slot a), so the device has to reboot first.'
     Write-Host '  I can ask it over SSH; you will be prompted for its password.'
     if ((Ask 'Reboot the device into Android now? (yes/no)' 'yes') -ne 'yes') { Die 'boot Android yourself (in Linux: sudo mu300-next-boot android && sudo reboot)' }
+    # -t: sudo needs a terminal to ask for the device password; reboot cuts the connection, so watch the port
     foreach ($u in 'ubuntu', 'root') {
-        Write-Host "  trying $u@$MU300_IP"
-        & ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o LogLevel=ERROR -o ConnectTimeout=8 "$u@$MU300_IP" `
-            'command -v sudo >/dev/null && sudo mu300-next-boot android || mu300-next-boot android; sync; (sleep 2; reboot) >/dev/null 2>&1 &' 2>$null
-        if ($LASTEXITCODE -eq 0) { break }
+        Write-Host "  $u@$MU300_IP - enter the device password when asked (Ctrl-C to skip)"
+        & ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o LogLevel=ERROR -o ConnectTimeout=8 "$u@$MU300_IP" `
+            'if [ "$(id -u)" = 0 ]; then S=; else S=sudo; fi; $S sh -c "/opt/mu300/bin/mu300-next-boot android && sync && reboot"'
+        $gone = $false
+        for ($i = 0; $i -lt 8; $i++) {
+            if (-not (Test-NetConnection -ComputerName $MU300_IP -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue)) { $gone = $true; break }
+            Start-Sleep 5
+        }
+        if ($gone) { Write-Host '  rebooting'; break }
     }
     Write-Host '  waiting for Android'
     for ($i = 0; $i -lt 60; $i++) {

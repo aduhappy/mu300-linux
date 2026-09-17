@@ -44,12 +44,23 @@ if ((& adb get-state 2>$null) -notmatch 'device') {
     Say 'The device is running MU300 Linux, not Android'
     Write-Host '  Uninstalling happens from Android (slot a), so the device has to reboot first.'
     if ((Ask 'Reboot the device into Android now? (yes/no)' 'yes') -ne 'yes') { Die 'boot Android yourself (in Linux: sudo mu300-next-boot android && sudo reboot)' }
+    # -t: sudo needs a terminal to ask for the device password; reboot cuts the connection, so watch the port
     foreach ($u in 'ubuntu', 'root') {
-        & ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o LogLevel=ERROR -o ConnectTimeout=8 "$u@$MU300_IP" `
-            'command -v sudo >/dev/null && sudo mu300-next-boot android || mu300-next-boot android; sync; (sleep 2; reboot) >/dev/null 2>&1 &' 2>$null
-        if ($LASTEXITCODE -eq 0) { break }
+        Write-Host "  $u@$MU300_IP - enter the device password when asked (Ctrl-C to skip)"
+        & ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o LogLevel=ERROR -o ConnectTimeout=8 "$u@$MU300_IP" `
+            'if [ "$(id -u)" = 0 ]; then S=; else S=sudo; fi; $S sh -c "/opt/mu300/bin/mu300-next-boot android && sync && reboot"'
+        $gone = $false
+        for ($i = 0; $i -lt 8; $i++) {
+            if (-not (Test-NetConnection -ComputerName $MU300_IP -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue)) { $gone = $true; break }
+            Start-Sleep 5
+        }
+        if ($gone) { Write-Host '  rebooting'; break }
     }
-    for ($i = 0; $i -lt 60; $i++) { if ((& adb get-state 2>$null) -match 'device') { break }; Start-Sleep 5 }
+    Write-Host '  waiting for Android'
+    for ($i = 0; $i -lt 60; $i++) {
+        if ((& adb get-state 2>$null) -match 'device') { break }
+        Start-Sleep 5
+    }
     if ((& adb get-state 2>$null) -notmatch 'device') { Die 'the device did not come back as Android' }
 }
 if ((SuDo 'id -u') -ne '0') { Die 'su does not work on the device' }

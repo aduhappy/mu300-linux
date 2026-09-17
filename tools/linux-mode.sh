@@ -14,16 +14,24 @@ linux_mode_running() {
 linux_mode_to_android() {
     say "The device is running MU300 Linux, not Android"
     echo "  Installing and uninstalling happen from Android (slot a), so the device has to reboot first."
-    echo "  I can ask it over SSH; you will be prompted for its password."
     ask go "Reboot the device into Android now? (yes/no)" yes
-    [ "$go" = yes ] || die "boot Android yourself (in Linux: sudo mu300-next-boot android && sudo reboot)"
+    [ "$go" = yes ] || die "boot Android yourself (on the device: sudo mu300-next-boot android && sudo reboot)"
+    # -t: sudo needs a terminal to ask for the device password, and everything runs in one sudo call so it is
+    # asked only once. reboot cuts the connection, so ssh's exit status says nothing: watch the port instead.
     for user in ubuntu root; do
-        echo "  trying $user@$MU300_IP"
-        if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=8 \
-             "$user@$MU300_IP" 'command -v sudo >/dev/null && sudo mu300-next-boot android || mu300-next-boot android; sync; (sleep 2; reboot) >/dev/null 2>&1 &' 2>/dev/null; then
-            break
-        fi
+        echo "  $user@$MU300_IP - enter the device password when asked (Ctrl-C to skip)"
+        ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=8 \
+            "$user@$MU300_IP" 'if [ "$(id -u)" = 0 ]; then S=; else S=sudo; fi; $S sh -c "/opt/mu300/bin/mu300-next-boot android && sync && reboot"' || true
+        n=0
+        while [ $n -lt 8 ]; do
+            linux_mode_running || { echo "  rebooting"; break; }
+            n=$((n + 1)); sleep 5
+        done
+        linux_mode_running || break
     done
+    if linux_mode_running; then
+        die "could not reboot it over SSH; on the device run: sudo mu300-next-boot android && sudo reboot"
+    fi
     echo "  waiting for Android"
     n=0
     while [ $n -lt 60 ]; do
