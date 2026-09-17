@@ -139,23 +139,6 @@ The root filesystem moved from Ubuntu 26.04 to 24.04 LTS: 26.04's userland start
   directory (systemd then disappears). Always ship files under `usr/lib/...`.
 * `docker export` leaves `/etc/hostname` empty.
 
-### 13a. Unexplained loss of the whole Linux region (2026-09-17), cause still open
-One hour after a working installation the **entire 32 GiB region read back as zeros** — superblock, both systems and
-all data — while the system was running; the device then rebooted into Android. `boot_b` and `misc` were untouched
-(so `uninstall.sh` had not run), Android's own partitions were fine, and the region was still all zeros afterwards.
-
-Ruled out so far:
-* `fstrim`/discard: the root loop device reports `discard_max_bytes=0`, and `fstrim /` answers "the discard
-  operation is not supported" — it cannot reach the eMMC at all. (`fstrim.timer`, `fstrim.service` and
-  `e2scrub_all.timer` are masked in the images anyway, as a cheap precaution.)
-* `uninstall.sh` (it restores `boot_b` first, which still held the Linux image).
-* A new installation with "format" (mke2fs would leave a fresh superblock, not zeros).
-* An Android factory reset (`/data` was intact, timestamps unchanged).
-
-Still open. When it happens again, `/private` watchdogs should capture: the last kernel messages before the reboot,
-whether the region goes to zero at once or gradually, and whether anything mounted it twice (two loop devices on one
-ext4 corrupted it once before, see §10).
-
 ## Wi-Fi (SC2355 / Marlin3)
 
 ### 14. Bring-up
