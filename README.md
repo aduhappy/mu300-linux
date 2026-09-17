@@ -48,7 +48,9 @@ need `adb` on your computer. Getting to that point is not part of this project.
 
 **You need:**
 * A ZTE F50 / MU300, rooted, connected by USB, with USB debugging enabled.
-* A macOS or Linux computer with `adb`, `python3`, `lz4` and `curl`.
+* A computer with `adb` and Python 3:
+  * **macOS or Linux:** also `lz4` and `curl` (both usually already installed).
+  * **Windows 10/11:** PowerShell, plus `pip install lz4`. Use `install.ps1` / `uninstall.ps1` below.
 * About 15 minutes.
 
 ## Install
@@ -56,7 +58,8 @@ need `adb` on your computer. Getting to that point is not part of this project.
 **Step 1 — check your device.** This only reads; it writes nothing.
 
 ```sh
-./install.sh --check
+./install.sh --check          # macOS / Linux
+.\install.ps1 -Check          # Windows (PowerShell)
 ```
 
 It reports the storage size, where Android's partitions end and how much free space follows them. On the tested
@@ -65,7 +68,8 @@ devices that is about 32 GiB. If yours shows much less, stop and open an issue.
 **Step 2 — install.**
 
 ```sh
-./install.sh
+./install.sh                  # macOS / Linux
+.\install.ps1                 # Windows
 ```
 
 It asks a few questions (Ubuntu, OpenWrt or both; which one boots; a password), downloads the ready-made images,
@@ -116,7 +120,8 @@ mu300-vpn status
 With the device back in Android:
 
 ```sh
-./uninstall.sh
+./uninstall.sh                # macOS / Linux
+.\uninstall.ps1               # Windows
 ```
 
 It makes Android the boot system again, restores the second boot partition and erases the Linux filesystem. Your
@@ -178,7 +183,8 @@ and would overwrite the device's storage. A normal `apk upgrade` is fine, except
 
 | Path | Contents |
 |---|---|
-| `install.sh`, `uninstall.sh` | installer and remover (run on your computer) |
+| `install.sh`, `uninstall.sh` | installer and remover for macOS/Linux |
+| `install.ps1`, `uninstall.ps1` | the same for Windows (PowerShell) |
 | `kernel/` | kernel build environment, config, patches |
 | `boot/` | initramfs `init`, boot image builder, slot handling |
 | `rootfs/` | Ubuntu image: `Dockerfile`, `assemble.sh`, services and scripts in `overlay/` |
