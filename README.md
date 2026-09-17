@@ -229,4 +229,7 @@ The kernel source used here is mirrored at
 * Wi-Fi, Bluetooth and GPU drivers: realme C51/C53 AndroidT kernel release — GPL-2.0; the patches in
   `kernel/patches` are GPL-2.0.
 * Scripts, tools and documentation in this repository: MIT (see `LICENSE`).
-* Stock firmware, Android vendor components and bootloaders belong to their owners and are not distributed here.
+* Stock firmware, Android vendor components and bootloaders belong to their owners and are not distributed here,
+  with one exception: [`stock/`](stock/) holds the stock `trustos` (TEE) image for firmware `ZYV1.0.0B09`,
+  published with ZTE's written permission as a last-resort repair for devices whose own TEE is damaged. Read
+  [`stock/README.md`](stock/README.md) before touching it — it can make a non-booting device worse.
